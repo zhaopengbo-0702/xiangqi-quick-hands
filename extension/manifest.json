@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "象棋快手 · 自适应对弈",
+  "version": "2.1.2",
+  "minimum_chrome_version": "116",
+  "description": "适配 Xiangqi.com 在线与人机对局，使用本地 Pikafish NNUE 引擎自适应多步搜索并自动落子。",
+  "permissions": ["storage", "offscreen", "nativeMessaging", "scripting"],
+  "host_permissions": ["https://play.xiangqi.com/*"],
+  "background": {"service_worker": "background.js", "type": "module"},
+  "action": {"default_title": "象棋快手：显示 / 收起控制台", "default_icon": {"32": "icons/icon32.png", "128": "icons/icon128.png"}},
+  "icons": {"32": "icons/icon32.png", "128": "icons/icon128.png"},
+  "content_scripts": [
+    {
+      "matches": ["https://play.xiangqi.com/*"],
+      "js": ["page-bridge.js"],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://play.xiangqi.com/*"],
+      "js": ["site-adapter.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [{"resources": ["icons/*.svg"], "matches": ["https://play.xiangqi.com/*"]}],
+  "cross_origin_opener_policy": {"value": "same-origin"},
+  "cross_origin_embedder_policy": {"value": "require-corp"},
+  "content_security_policy": {"extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; worker-src 'self'"}
+}

@@ -1,0 +1,17 @@
+* text=auto eol=lf
+
+# Preserve upstream engine bytes for the published integrity checks.
+/extension/engine/stockfish.js -text
+/extension/engine/stockfish.worker.js -text
+/extension/engine/pikafish/pikafish.js -text
+/third_party/pikafish-wasm/pikafish.js -text
+/third_party/pikafish-wasm/worker.js -text
+
+*.exe binary
+*.wasm binary
+*.nnue binary
+*.gz binary
+*.png binary
+*.jpg binary
+*.zip binary
+*.7z binary

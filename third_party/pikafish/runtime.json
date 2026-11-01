@@ -1,0 +1,11 @@
+{
+  "version": "Pikafish 2026-09-06",
+  "enginePath": "runtime/Pikafish-Windows-x86-64-universal.exe",
+  "networkPath": "../../extension/engine/pikafish/pikafish.nnue",
+  "engineSha256": "0d57d64c212e78f96cba9e5e4f140d8872f8faa42ea631a27ab6c5db08509da3",
+  "networkSha256": "7d13d73569a9b571ba0eb20cf1596247bc2a42738967e61afef6482b231e900e",
+  "threads": 4,
+  "hash": 128,
+  "releaseUrl": "https://github.com/official-pikafish/Pikafish/releases/tag/Pikafish-2026-09-06",
+  "archiveSha256": "41952bbfe2520faceb5902c69e6ab4845cc999841d2b49a95cc1be7867a25e5b"
+}

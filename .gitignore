@@ -1,0 +1,17 @@
+node_modules/
+test-results/
+*.zip
+__pycache__/
+*.py[cod]
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+
+# Keep one shared NNUE and source archives, rather than local download/build copies.
+/third_party/pikafish/Pikafish.2026-09-06.7z
+/third_party/pikafish/runtime/pikafish.nnue
+/third_party/pikafish-wasm/build-source/
+/third_party/pikafish-wasm/pikafish-wasm-4262e0f022a966e2401d01afd4b2a599b7fbdc2a/
