@@ -145,7 +145,7 @@
       this.onMessage = (event) => {
         if (event.source !== this.window || event.origin !== this.window.location.origin) return;
         const value = event.data;
-        if (!value || value.type !== "xiangqi-assistant:state" || value.nonce !== this.nonce) return;
+        if (!value || value.type !== "xiangqi-assistant:state:v2" || value.nonce !== this.nonce) return;
         const pending = this.pending.get(value.requestId);
         if (!pending) return;
         this.pending.delete(value.requestId);
@@ -170,7 +170,7 @@
       const raw = await new Promise((resolve, reject) => {
         const timer = setTimeout(() => { this.pending.delete(requestId); reject(new Error("读取棋盘超时，请刷新页面")); }, remaining);
         this.pending.set(requestId, { resolve, reject, timer });
-        this.window.postMessage({ type: "xiangqi-assistant:read", nonce: this.nonce, requestId }, this.window.location.origin);
+        this.window.postMessage({ type: "xiangqi-assistant:read:v2", nonce: this.nonce, requestId }, this.window.location.origin);
       });
       if (!raw?.error && raw?.mode !== routeMode(this.window.location.pathname)) throw new Error("对局类型已变化，请重新读取棋盘");
       if (!raw?.error && raw?.route !== this.window.location.pathname) throw new Error("对局页面已变化，停止落子");
@@ -238,11 +238,13 @@
       const target = destination && Array.from(destination.children).find((element) => !element.classList.contains("top-indicator") && !element.classList.contains("column-index"));
       checkAction();
       this.clickTarget(target);
-      const started = Date.now();
-      while (Date.now() - started < 700) {
+      const confirmationDeadline = Math.min(this.window.performance.now() + 1500,
+        Number.isFinite(options.deadline) ? options.deadline : Infinity);
+      // Wait for the original click only; never replay an uncertain destination.
+      while (this.window.performance.now() < confirmationDeadline) {
         checkAction();
         let after;
-        try { after = await this.read(options); }
+        try { after = await this.read({ ...options, deadline: confirmationDeadline }); }
         catch (error) {
           if (error.code !== "XQ_STATE_SYNC") throw error;
           await new Promise((resolve) => setTimeout(resolve, 35));
@@ -255,7 +257,8 @@
         await new Promise((resolve) => setTimeout(resolve, 35));
         checkAction();
       }
-      throw new Error("网站未确认落子，自动行棋已停止");
+      checkAction();
+      throw new Error("网站未在时限内确认落子，已暂停，请检查棋盘");
     }
   }
 

@@ -10,7 +10,10 @@ const results = path.join(project, 'test-results');
 const artifactPrefix = process.env.XQ_SMOKE_ARTIFACT_PREFIX || 'mv3-pikafish';
 const syncScenario = process.env.XQ_SMOKE_SYNC === '1';
 const reloadScenario = process.env.XQ_SMOKE_RELOAD === '1';
-if(syncScenario&&reloadScenario)throw new Error('Run sync and reload smoke scenarios separately.');
+const ackScenario = process.env.XQ_SMOKE_ACK === '1';
+const playerSide = process.env.XQ_SMOKE_SIDE || 'red';
+if([syncScenario,reloadScenario,ackScenario].filter(Boolean).length>1)throw new Error('Run sync, reload and acknowledgement scenarios separately.');
+if(!['red','black'].includes(playerSide))throw new Error('Invalid smoke player side');
 if (!/^[a-z0-9-]+$/.test(artifactPrefix)) throw new Error('Invalid smoke artifact prefix');
 const tempRoot = path.resolve(os.tmpdir());
 const initialFen = 'rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR r - - 0 1';
@@ -21,8 +24,11 @@ const fixture = `<!doctype html><html lang="en"><head><meta charset="utf-8"><tit
 <script>
 const INITIAL = ${JSON.stringify(initialFen)};
 const SYNC_SCENARIO = ${JSON.stringify(syncScenario)};
-const boardContext = {fen:INITIAL,myPieceCase:'toUpperCase',isMyTurnNow:true,flipBoard:false,viewOnly:false};
-const game = {playerSide:'red',flipBoard:false,historyMode:false,gameData:{gameID:'mv3-fixture'},boardContext,
+const ACK_SCENARIO = ${JSON.stringify(ackScenario)};
+const PLAYER_SIDE = ${JSON.stringify(playerSide)};
+const FLIPPED = PLAYER_SIDE==='black';
+let boardContext = {fen:INITIAL,myPieceCase:FLIPPED?'toLowerCase':'toUpperCase',isMyTurnNow:!FLIPPED,flipBoard:FLIPPED,viewOnly:false};
+let game = {playerSide:PLAYER_SIDE,flipBoard:FLIPPED,historyMode:false,gameData:{gameID:'mv3-fixture'},boardContext,
   gamePlayData:{currentFen:INITIAL,initFen:INITIAL,moveCount:0,turnNow:'red',state:2,endReason:null,moves:[]}};
 let selected = null;
 let board;
@@ -32,29 +38,49 @@ let fullmove = 1;
 let ownInputAttempts = 0;
 let rejectedOwnInputs = 0;
 let syncPhase = null;
+let ackPhase = null;
+let tree = null;
+let rootFlips = 0;
+let staleReturnReads = 0;
 const ownMoves = [];
 const syncEvents = [];
+const ackEvents = [];
 const cells = INITIAL.split(' ')[0].split('/').map(row=>[...row].flatMap(piece=>/\\d/.test(piece)?Array(Number(piece)).fill(null):[piece]));
 function square(row,column){return String.fromCharCode(97+column)+(10-row)}
+function display(row,column){return FLIPPED?{r:9-row,c:8-column}:{r:row,c:column}}
 function placement(){return cells.map(row=>{let result='',empty=0;for(const piece of row){if(!piece)empty++;else{if(empty)result+=empty;empty=0;result+=piece}}if(empty)result+=empty;return result}).join('/')}
+function commit(nextGame,nextContext){
+  game=nextGame;boardContext=nextContext;
+  if(tree){
+    const next=1-tree.current;
+    tree.games[next].memoizedProps=game;tree.providers[next].memoizedProps={value:boardContext};
+    tree.rootState.current=tree.roots[next];tree.current=next;
+    tree.host.return=tree.providers[1-next];rootFlips++;
+  }
+}
 function publish(){
   const data=game.gamePlayData;
   window.smokeFixture={moveCount:data.moveCount,lastMove:data.moves.at(-1)?.uci||null,fen:data.currentFen,
-    route:location.pathname,ownInputAttempts,rejectedOwnInputs,ownMoves,syncEvents,syncPhase:syncPhase?.name||null};
+    route:location.pathname,playerSide:PLAYER_SIDE,flipBoard:FLIPPED,ownInputAttempts,rejectedOwnInputs,
+    ownMoves,syncEvents,syncPhase:syncPhase?.name||null,ackEvents,ackPhase:ackPhase?.name||null,rootFlips,staleReturnReads};
   document.getElementById('fixture-state').textContent=JSON.stringify(window.smokeFixture);
 }
 function inconsistentTurn(name){
   const correct=game.gamePlayData.currentFen.split(' ')[1]==='b'?'black':'red';
-  game.gamePlayData.turnNow=correct==='red'?'black':'red';
+  commit({...game,gamePlayData:{...game.gamePlayData,turnNow:correct==='red'?'black':'red'}},boardContext);
   const phase={name,durationMs:300,reads:0,startedAt:Math.round(performance.now())};
   syncEvents.push(phase);syncPhase=phase;publish();
-  setTimeout(()=>{game.gamePlayData.turnNow=correct;boardContext.isMyTurnNow=correct==='red';
+  setTimeout(()=>{const nextContext={...boardContext,isMyTurnNow:correct===PLAYER_SIDE};
+    commit({...game,boardContext:nextContext,gamePlayData:{...game.gamePlayData,turnNow:correct}},nextContext);
     phase.completedAt=Math.round(performance.now());syncPhase=null;publish();},300);
 }
 window.addEventListener('message',event=>{
-  if(event.source===window&&event.data?.type==='xiangqi-assistant:read'&&syncPhase)syncPhase.reads++;
+  if(event.source!==window||event.data?.type!=='xiangqi-assistant:read:v2')return;
+  if(syncPhase)syncPhase.reads++;
+  if(ackPhase)ackPhase.reads++;
+  if(tree&&tree.host.return!==tree.providers[tree.current])staleReturnReads++;
 });
-function applyMove(uci){
+function applyMove(uci,delayMs=0,onCommitted){
   const match=uci.match(/^([a-i])(10|[1-9])([a-i])(10|[1-9])$/);
   if(!match)throw new Error('Invalid fixture coordinate');
   const from={r:10-Number(match[2]),c:match[1].charCodeAt(0)-97};
@@ -69,24 +95,37 @@ function applyMove(uci){
   const turn=black?'red':'black';
   const fen=placement()+' '+(black?'r':'b')+' - - '+halfmove+' '+fullmove;
   const data=game.gamePlayData;
-  data.moves.push({uci,currentFen:fen,index:data.moveCount});
-  Object.assign(data,{currentFen:fen,moveCount:data.moveCount+1,turnNow:turn});
-  Object.assign(boardContext,{fen,isMyTurnNow:turn==='red'});render();publish();
+  const nextData={...data,moves:[...data.moves,{uci,currentFen:fen,index:data.moveCount}],currentFen:fen,moveCount:data.moveCount+1,turnNow:turn};
+  const nextContext={...boardContext,fen,isMyTurnNow:turn===PLAYER_SIDE};
+  const nextGame={...game,gamePlayData:nextData,boardContext:nextContext};
+  render();
+  const finish=()=>{
+    commit(nextGame,nextContext);
+    if(ackPhase){ackPhase.completedAt=Math.round(performance.now());ackPhase=null;}
+    publish();onCommitted?.();
+  };
+  if(delayMs){
+    ackPhase={name:'after-own-destination-'+ownMoves.length,durationMs:delayMs,reads:0,startedAt:Math.round(performance.now())};
+    ackEvents.push(ackPhase);publish();setTimeout(finish,delayMs);
+  }else finish();
 }
 function opponentMove(){
-  const options=['a7a6','c7c6','e7e6','g7g6','i7i6'];
-  const move=options.find(uci=>cells[3][uci.charCodeAt(0)-97]==='p'&&!cells[4][uci.charCodeAt(0)-97]);
+  const options=PLAYER_SIDE==='red'?['a7a6','c7c6','e7e6','g7g6','i7i6']:['a4a5','c4c5','e4e5','g4g5','i4i5'];
+  const row=PLAYER_SIDE==='red'?3:6,targetRow=PLAYER_SIDE==='red'?4:5,pawn=PLAYER_SIDE==='red'?'p':'P';
+  const move=options.find(uci=>cells[row][uci.charCodeAt(0)-97]===pawn&&!cells[targetRow][uci.charCodeAt(0)-97]);
   if(!move)throw new Error('No fixture opponent pawn move');
-  applyMove(move);inconsistentTurn('after-opponent-move');
+  applyMove(move);if(!ACK_SCENARIO)inconsistentTurn('after-opponent-move');
 }
 function destination(row,column){
   if(!selected)return;
   ownInputAttempts++;
-  if(game.gamePlayData.turnNow!=='red'||!boardContext.isMyTurnNow){rejectedOwnInputs++;selected=null;publish();return;}
+  if(ackPhase||game.gamePlayData.turnNow!==PLAYER_SIDE||!boardContext.isMyTurnNow){rejectedOwnInputs++;selected=null;publish();return;}
   const from=selected;selected=null;
   const uci=square(from.r,from.c)+square(row,column);
   ownMoves.push({uci,beforeFen:game.gamePlayData.currentFen,acceptedAt:Math.round(performance.now())});
-  applyMove(uci);
+  applyMove(uci,ACK_SCENARIO?900:0,()=>{
+    if(ACK_SCENARIO&&ownMoves.length===1)setTimeout(opponentMove,450);
+  });
   if(SYNC_SCENARIO){
     inconsistentTurn('after-own-destination-'+ownMoves.length);
     if(ownMoves.length===1){setTimeout(()=>inconsistentTurn('waiting-for-opponent'),750);setTimeout(opponentMove,1500);}
@@ -94,16 +133,27 @@ function destination(row,column){
 }
 function render(){
   pieces.replaceChildren();
-  cells.forEach((row,r)=>row.forEach((piece,c)=>{if(!piece)return;const holder=document.createElement('div');holder.style.left=(c*50)+'px';holder.style.top=(r*50)+'px';const token=document.createElement('div');token.className='piece'+(piece===piece.toUpperCase()?' red':'');token.textContent=piece;token.dataset.square=square(r,c);token.addEventListener('click',event=>{event.stopPropagation();pieces.querySelectorAll('.piece').forEach(item=>item.classList.remove('selected-piece'));token.classList.add('selected-piece');selected={r,c}});holder.append(token);pieces.append(holder)}));
+  cells.forEach((row,r)=>row.forEach((piece,c)=>{if(!piece)return;const visual=display(r,c);const holder=document.createElement('div');holder.style.left=(visual.c*50)+'px';holder.style.top=(visual.r*50)+'px';const token=document.createElement('div');token.className='piece'+(piece===piece.toUpperCase()?' red':'');token.textContent=piece;token.dataset.square=square(r,c);token.addEventListener('click',event=>{event.stopPropagation();pieces.querySelectorAll('.piece').forEach(item=>item.classList.remove('selected-piece'));token.classList.add('selected-piece');selected={r,c}});holder.append(token);pieces.append(holder)}));
 }
 function enter(){
   history.pushState({},'', '/computer-play');
   document.getElementById('enter').remove();
   board=document.createElement('div');board.id='game-grid';
-  const root={memoizedProps:game,return:null};const provider={memoizedProps:{value:boardContext},return:root};board['__reactFiber$smoke']={memoizedProps:{id:'game-grid'},return:provider};
-  for(let r=0;r<10;r++)for(let c=0;c<9;c++){const cell=document.createElement('div');cell.className='square '+(10-r)+'-'+String.fromCharCode(97+c);cell.style.left=(c*50)+'px';cell.style.top=(r*50)+'px';const target=document.createElement('div');target.className='square-target';target.addEventListener('click',()=>destination(r,c));cell.append(target);board.append(cell)}
+  // Both committed branches share the host, whose return pointer deliberately trails the current root.
+  const rootState={current:null};
+  const roots=[0,1].map(()=>({tag:3,stateNode:rootState,return:null}));
+  const games=roots.map(root=>({memoizedProps:game,return:root}));
+  const providers=games.map(parent=>({memoizedProps:{value:boardContext},return:parent}));
+  const host={memoizedProps:{id:'game-grid'},return:providers[0]};
+  for(let index=0;index<2;index++){
+    roots[index].alternate=roots[1-index];roots[index].child=games[index];
+    games[index].alternate=games[1-index];games[index].child=providers[index];
+    providers[index].alternate=providers[1-index];providers[index].child=host;
+  }
+  rootState.current=roots[0];tree={rootState,roots,games,providers,host,current:0};board['__reactFiber$smoke']=host;
+  for(let r=0;r<10;r++)for(let c=0;c<9;c++){const cell=document.createElement('div');cell.className='square '+(10-r)+'-'+String.fromCharCode(97+c);cell.style.left=(c*50)+'px';cell.style.top=(r*50)+'px';const target=document.createElement('div');target.className='square-target';target.addEventListener('click',()=>destination(FLIPPED?9-r:r,FLIPPED?8-c:c));cell.append(target);board.append(cell)}
   pieces=document.createElement('div');pieces.className='pieces-container';board.append(pieces);document.getElementById('stage').append(board);render();
-  publish();
+  if(PLAYER_SIDE==='black')applyMove('a4a5');else publish();
 }
 document.getElementById('enter').addEventListener('click',enter);
 </script></body></html>`;
@@ -230,7 +280,7 @@ async function main() {
       await oldPanel.dispose();
     }
     const started = Date.now();
-    if(syncScenario){
+    if(syncScenario||ackScenario){
       await page.evaluate(()=>{
         const panel=document.getElementById('xq-quick-hands').shadowRoot;
         window.smokeAutoplay={startClicks:0,searches:[]};
@@ -243,7 +293,7 @@ async function main() {
       });
       await page.locator('#xq-quick-hands').getByRole('button',{name:'开始自动',exact:true}).click();
       await page.waitForFunction(()=>window.smokeFixture?.ownMoves.length===2&&window.smokeAutoplay.searches.length===2&&
-        !window.smokeFixture.syncPhase,null,{timeout:25000});
+        !window.smokeFixture.syncPhase&&!window.smokeFixture.ackPhase,null,{timeout:25000});
       await page.waitForTimeout(600);
     }else{
       await page.locator('#xq-quick-hands').getByRole('button',{name:'走一步',exact:true}).click();
@@ -258,37 +308,48 @@ async function main() {
       return Object.fromEntries(['engine-name','status','move','depth','score','elapsed','importance','allocated','pv'].map(id=>[id,root.getElementById(id).textContent]));
     });
     const boardState = JSON.parse(await page.locator('#fixture-state').textContent());
-    const autoplay=syncScenario?await page.evaluate(()=>({...window.smokeAutoplay,
+    const autoplay=syncScenario||ackScenario?await page.evaluate(()=>({...window.smokeAutoplay,
       button:document.getElementById('xq-quick-hands').shadowRoot.getElementById('auto').textContent})):null;
     const messages = await worker.evaluate(() => globalThis.smokeObservedMessages);
     const analysis = messages.find(message=>message.type==='XQ_ANALYZE');
     assert.ok(analysis,'The real service worker must receive an analysis request');
     assert.equal(analysis.currentTabUrl,'https://play.xiangqi.com/computer-play');
-    assert.equal(boardState.moveCount,syncScenario||reloadScenario?3:1);
+    const initialPlies=playerSide==='black'?1:0;
+    assert.equal(boardState.moveCount,initialPlies+(syncScenario||reloadScenario||ackScenario?3:1));
     assert.equal(boardState.lastMove,panel.move);
     assert.match(panel['engine-name'], /Pikafish.*NNUE/, 'The production extension must identify the verified Pikafish NNUE backend');
     assert.ok(Number(panel.depth.match(/\d+/)?.[0])>=6,'Real Pikafish search must finish at least six plies');
     assert.ok(panel.pv.includes(panel.move),'The displayed move must have a searched principal variation');
-    if(syncScenario){
+    if(syncScenario||ackScenario){
       assert.equal(autoplay.startClicks,1,'Autoplay must continue after one start click');
       assert.match(autoplay.button,/暂停自动/,'Transient updates must leave autoplay running');
       assert.equal(boardState.ownMoves.length,2);
       assert.equal(boardState.ownInputAttempts,2,'Each own move must have one destination click');
       assert.equal(boardState.rejectedOwnInputs,0,'No duplicate input may occur during the opponent turn');
       assert.equal(new Set(boardState.ownMoves.map(move=>move.beforeFen)).size,2);
-      assert.deepEqual(messages.filter(message=>message.type==='XQ_ANALYZE').map(message=>message.historyPlies),[0,2]);
+      assert.deepEqual(messages.filter(message=>message.type==='XQ_ANALYZE').map(message=>message.historyPlies),[initialPlies,initialPlies+2]);
       assert.equal(autoplay.searches.length,2);
       assert.ok(autoplay.searches.every(search=>search.depth>=6&&search.elapsedMs<5000));
-      assert.deepEqual(boardState.syncEvents.map(event=>event.name),['after-own-destination-1','waiting-for-opponent',
-        'after-opponent-move','after-own-destination-2']);
-      assert.ok(boardState.syncEvents.every(event=>event.reads>0&&event.completedAt>=event.startedAt+250),
-        'The extension must read all injected 300ms inconsistent snapshots');
+      if(syncScenario){
+        assert.deepEqual(boardState.syncEvents.map(event=>event.name),['after-own-destination-1','waiting-for-opponent',
+          'after-opponent-move','after-own-destination-2']);
+        assert.ok(boardState.syncEvents.every(event=>event.reads>0&&event.completedAt>=event.startedAt+250),
+          'The extension must read all injected 300ms inconsistent snapshots');
+      }else{
+        assert.equal(boardState.ackEvents.length,2);
+        assert.ok(boardState.ackEvents.every(event=>event.reads>0&&event.completedAt>=event.startedAt+850),
+          'Both accepted moves must expose stale coherent snapshots for 900ms');
+        assert.ok(boardState.rootFlips>=3,'Committed state must alternate between both React roots');
+        assert.ok(boardState.staleReturnReads>0,'The bridge must encounter stale return pointers on shared children');
+        assert.equal(boardState.playerSide,playerSide);
+        assert.equal(boardState.flipBoard,playerSide==='black');
+      }
     }else assert.ok(elapsed<5000,'Warmed end-to-end move must finish in five seconds');
     if(reloadScenario){
       assert.equal(boardState.ownInputAttempts,2);
       assert.equal(boardState.rejectedOwnInputs,0);
       assert.equal(boardState.ownMoves.length,2);
-      assert.deepEqual(messages.filter(message=>message.type==='XQ_ANALYZE').map(message=>message.historyPlies),[2]);
+      assert.deepEqual(messages.filter(message=>message.type==='XQ_ANALYZE').map(message=>message.historyPlies),[initialPlies+2]);
       assert.deepEqual(documentNavigations,[]);
       reload.documentNavigations=documentNavigations;
     }
@@ -298,7 +359,8 @@ async function main() {
     const report={ok:true,executablePath,manifestVersion:JSON.parse(await fs.readFile(path.join(extension,'manifest.json'),'utf8')).version,
       scenario:forceWasm?
         'real MV3 extension + missing native host + genuine Pikafish NNUE WASM fallback + SPA lobby-to-game + '+
-          (syncScenario?'one-click autoplay through 300ms inconsistent state updates and two acknowledged own moves':
+          (ackScenario?'one-click autoplay + '+playerSide+' side + flipped board when black + two 900ms delayed confirmations + shared React child and stale ancestors':
+            syncScenario?'one-click autoplay through 300ms inconsistent state updates and two acknowledged own moves':
             reloadScenario?'real runtime reload + preserved live chess document + fresh paused panel + acknowledged move':'fixture move acknowledgement'):
         'real MV3 extension + native messaging + official Pikafish NNUE + SPA lobby-to-game + fixture move acknowledgement',
       engine:startup.result,

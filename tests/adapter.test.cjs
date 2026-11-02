@@ -97,6 +97,91 @@ test("unconfirmed destination sync errors stop at the deadline without authorizi
   assert.equal(destinations(), 1);
 });
 
+function delayedAcknowledgementFixture({ delayMs = 900, wrongMove = false, fastReply = false, onDestination } = {}) {
+  const adapter = Object.create(XiangqiSiteAdapter.prototype);
+  const raw = { playerSide: "red", gameID: "delayed-ack", gamePlayData: {
+    initFen: INITIAL, currentFen: INITIAL, turnNow: "red", moveCount: 0, state: 2, endReason: null
+  } };
+  const snapshot = normalizeSnapshot(raw);
+  const ownFen = applyPlacement(INITIAL, wrongMove ? "b3d3" : "b3e3") + " b - - 1 1";
+  const publishedFen = fastReply ? applyPlacement(ownFen, "a7a6") + " w - - 0 2" : ownFen;
+  const after = normalizeSnapshot({ ...raw, gamePlayData: { ...raw.gamePlayData,
+    currentFen: publishedFen, turnNow: fastReply ? "red" : "black", moveCount: fastReply ? 2 : 1,
+    moves: fastReply ? [{ uci: "b3e3", currentFen: ownFen, index: 0 }] : []
+  } });
+  const rect = { left: 10, top: 10, width: 40, height: 40 };
+  let selected = false, destinationAt = null, destinations = 0;
+  const source = { isConnected: true, classList: { contains: () => selected } };
+  const target = { classList: { contains: () => false } };
+  adapter.window = { performance };
+  adapter.assertReady = () => ({ querySelectorAll: () => [{ getBoundingClientRect: () => rect, querySelector: () => source }] });
+  adapter.squareElement = () => ({ getBoundingClientRect: () => rect, children: [target] });
+  adapter.clickTarget = element => {
+    if (element === source) selected = true;
+    else { destinations++; destinationAt = performance.now(); onDestination?.(); }
+  };
+  adapter.read = async () => destinationAt !== null && performance.now() - destinationAt >= delayMs ? after : snapshot;
+  return { adapter, snapshot, destinations: () => destinations };
+}
+
+test("a board published after 900ms confirms the original destination without another start or click", async () => {
+  const { adapter, snapshot, destinations } = delayedAcknowledgementFixture();
+  const started = performance.now();
+  const after = await adapter.play("b3e3", snapshot, { deadline: started + 2200 });
+  assert.equal(after.moveCount, 1);
+  assert.ok(performance.now() - started >= 900);
+  assert.equal(destinations(), 1);
+});
+
+test("a fast opponent reply is acknowledged through the published own move history", async () => {
+  const { adapter, snapshot, destinations } = delayedAcknowledgementFixture({ delayMs: 0, fastReply: true });
+  const after = await adapter.play("b3e3", snapshot, { deadline: performance.now() + 500 });
+  assert.equal(after.moveCount, 2);
+  assert.equal(destinations(), 1);
+});
+
+test("a different published move pauses rather than confirming or repeating the destination", async () => {
+  const { adapter, snapshot, destinations } = delayedAcknowledgementFixture({ delayMs: 0, wrongMove: true });
+  await assert.rejects(adapter.play("b3e3", snapshot, { deadline: performance.now() + 500 }), /局面与预期不同/);
+  assert.equal(destinations(), 1);
+});
+
+test("delayed acknowledgements remain bounded by the original move deadline", async () => {
+  const { adapter, snapshot, destinations } = delayedAcknowledgementFixture({ delayMs: 900 });
+  await assert.rejects(adapter.play("b3e3", snapshot, { deadline: performance.now() + 150 }), /超时/);
+  assert.equal(destinations(), 1);
+});
+
+test("pausing after the destination cancels acknowledgement without another click", async () => {
+  let cancelled = false;
+  const { adapter, snapshot, destinations } = delayedAcknowledgementFixture({ onDestination: () => { cancelled = true; } });
+  await assert.rejects(adapter.play("b3e3", snapshot, { deadline: performance.now() + 500, isCancelled: () => cancelled }), /取消/);
+  assert.equal(destinations(), 1);
+});
+
+test("version two board requests ignore obsolete bridge responses after extension updates", async () => {
+  let receive;
+  const raw = { mode: "computer", route: "/computer-play", playerSide: "red", gamePlayData: {
+    initFen: INITIAL, currentFen: INITIAL, moveCount: 0, turnNow: "red", state: 2, endReason: null
+  } };
+  const fakeWindow = {
+    location: { hostname: "play.xiangqi.com", pathname: "/computer-play", origin: "https://play.xiangqi.com" },
+    crypto: require("node:crypto").webcrypto, performance,
+    addEventListener: (_type, callback) => { receive = callback; }, removeEventListener() {},
+    postMessage(message) {
+      assert.equal(message.type, "xiangqi-assistant:read:v2");
+      const response = { nonce: message.nonce, requestId: message.requestId };
+      receive({ source: fakeWindow, origin: fakeWindow.location.origin, data: { ...response,
+        type: "xiangqi-assistant:state", payload: { error: "obsolete-state" } } });
+      receive({ source: fakeWindow, origin: fakeWindow.location.origin, data: { ...response,
+        type: "xiangqi-assistant:state:v2", payload: raw } });
+    }
+  };
+  const adapter = new XiangqiSiteAdapter({ window: fakeWindow, document: {} });
+  assert.equal((await adapter.read()).moveCount, 0);
+  adapter.destroy();
+});
+
 test("bridge reads the live board props shape and derives side from piece case", () => {
   const callbacks = [];
   const posts = [];
@@ -105,16 +190,18 @@ test("bridge reads the live board props shape and derives side from piece case",
   const root = { memoizedProps: game, return: null };
   const provider = { memoizedProps: { value: boardContext }, return: root };
   const board = { __reactFiber$test: { memoizedProps: { id: "game-grid" }, return: provider } };
+  Object.assign(root, { tag: 3, stateNode: { current: root }, child: provider });
+  provider.child = board.__reactFiber$test;
   const location = { hostname: "play.xiangqi.com", pathname: "/computer-play", origin: "https://play.xiangqi.com" };
   const window = { addEventListener: (type, callback) => callbacks.push(callback), postMessage: (value) => posts.push(value) };
   const document = { querySelector: () => board };
   vm.runInNewContext(fs.readFileSync(require.resolve("../extension/page-bridge.js"), "utf8"), { window, location, document });
-  callbacks[0]({ source: window, origin: location.origin, data: { type: "xiangqi-assistant:read", nonce: "0123456789abcdef0123456789abcdef", requestId: 1 } });
+  callbacks[0]({ source: window, origin: location.origin, data: { type: "xiangqi-assistant:read:v2", nonce: "0123456789abcdef0123456789abcdef", requestId: 1 } });
   assert.equal(posts[0].payload.playerSide, "red");
   assert.equal(posts[0].payload.isDrawArrows, true);
   assert.equal(posts[0].payload.gameID, "live-game");
   boardContext.myPieceCase = "toLowerCase";
-  callbacks[0]({ source: window, origin: location.origin, data: { type: "xiangqi-assistant:read", nonce: "0123456789abcdef0123456789abcdef", requestId: 2 } });
+  callbacks[0]({ source: window, origin: location.origin, data: { type: "xiangqi-assistant:read:v2", nonce: "0123456789abcdef0123456789abcdef", requestId: 2 } });
   assert.equal(posts[1].payload.playerSide, "black");
 });
 
@@ -143,11 +230,14 @@ test("bridge adapts online footer participant proof and server-adjusted clock", 
   const holder = { memoizedProps: { boardContext, footerContext }, return: root };
   const provider = { memoizedProps: { value: boardContext }, return: holder };
   const board = { __reactFiber$test: { memoizedProps: { id: "game-grid" }, return: provider } };
+  Object.assign(root, { tag: 3, stateNode: { current: root }, child: holder });
+  holder.child = provider;
+  provider.child = board.__reactFiber$test;
   const location = { hostname: "play.xiangqi.com", pathname: "/game/online-id", origin: "https://play.xiangqi.com" };
   const window = { addEventListener: (type, callback) => callbacks.push(callback), postMessage: (value) => posts.push(value) };
   vm.runInNewContext(fs.readFileSync(require.resolve("../extension/page-bridge.js"), "utf8"), { window, location, document: { querySelector: () => board }, Date: { now: () => now } });
   const read = () => {
-    callbacks[0]({ source: window, origin: location.origin, data: { type: "xiangqi-assistant:read", nonce: "0123456789abcdef0123456789abcdef", requestId: posts.length } });
+    callbacks[0]({ source: window, origin: location.origin, data: { type: "xiangqi-assistant:read:v2", nonce: "0123456789abcdef0123456789abcdef", requestId: posts.length } });
     return posts.at(-1).payload;
   };
   const first = read();
@@ -184,7 +274,7 @@ test("online reads reject wrong-mode and stale-route responses", async () => {
     crypto: require("node:crypto").webcrypto, performance,
     addEventListener(type, callback) { listener = callback; }, removeEventListener() {},
     postMessage(message) {
-      queueMicrotask(() => listener({ source: fakeWindow, origin: fakeWindow.location.origin, data: { type: "xiangqi-assistant:state", nonce: message.nonce, requestId: message.requestId, payload } }));
+      queueMicrotask(() => listener({ source: fakeWindow, origin: fakeWindow.location.origin, data: { type: "xiangqi-assistant:state:v2", nonce: message.nonce, requestId: message.requestId, payload } }));
     }
   };
   const adapter = new XiangqiSiteAdapter({ window: fakeWindow, document: {} });

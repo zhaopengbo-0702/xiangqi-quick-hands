@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "象棋快手 · 自适应对弈",
-  "version": "2.1.2",
+  "version": "2.1.3",
   "minimum_chrome_version": "116",
   "description": "适配 Xiangqi.com 在线与人机对局，使用本地 Pikafish NNUE 引擎自适应多步搜索并自动落子。",
   "permissions": ["storage", "offscreen", "nativeMessaging", "scripting"],

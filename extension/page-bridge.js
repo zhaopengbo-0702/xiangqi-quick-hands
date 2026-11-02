@@ -1,10 +1,55 @@
 (function () {
   "use strict";
 
-  if (window.__xiangqiAssistantBridgeV1) return;
-  window.__xiangqiAssistantBridgeV1 = true;
-  const REQUEST = "xiangqi-assistant:read";
-  const RESPONSE = "xiangqi-assistant:state";
+  const INSTANCE = "__xiangqiAssistantBridgeV2";
+  if (window[INSTANCE]?.version === 2 && window[INSTANCE].isAlive()) return;
+  window[INSTANCE]?.destroy?.();
+  const REQUEST = "xiangqi-assistant:read:v2";
+  const RESPONSE = "xiangqi-assistant:state:v2";
+
+  function committedAncestors(host) {
+    const candidates = new Set();
+    const pending = [host];
+    let rootState = null;
+    for (let index = 0; index < pending.length; index += 1) {
+      const fiber = pending[index];
+      if (!fiber || candidates.has(fiber)) continue;
+      if (typeof fiber !== "object" || candidates.size >= 512) return null;
+      candidates.add(fiber);
+      if (fiber.return) pending.push(fiber.return);
+      if (fiber.alternate) pending.push(fiber.alternate);
+      if (fiber.tag === 3) {
+        if (fiber.return || !fiber.stateNode?.current || (rootState && rootState !== fiber.stateNode)) return null;
+        rootState = fiber.stateNode;
+        pending.push(rootState.current);
+      }
+    }
+    const currentRoot = rootState?.current;
+    if (currentRoot?.tag !== 3 || currentRoot.stateNode !== rootState || currentRoot.return) return null;
+
+    // A shared bailout child can retain stale return pointers. Rebuild only its known ancestry from the committed root.
+    const paths = [{ fiber: currentRoot, parent: -1, depth: 0 }];
+    const visited = new Set([currentRoot]);
+    let scanned = 0;
+    for (let index = 0; index < paths.length; index += 1) {
+      const entry = paths[index];
+      if (entry.fiber === host || entry.fiber === host.alternate) {
+        const ancestors = [];
+        for (let cursor = index; cursor >= 0; cursor = paths[cursor].parent) ancestors.push(paths[cursor].fiber);
+        return ancestors;
+      }
+      if (entry.depth >= 150) return null;
+      const siblings = new Set();
+      for (let child = entry.fiber.child; child; child = child.sibling) {
+        if (++scanned > 4096 || siblings.has(child)) return null;
+        siblings.add(child);
+        if (!candidates.has(child) || visited.has(child)) continue;
+        visited.add(child);
+        paths.push({ fiber: child, parent: index, depth: entry.depth + 1 });
+      }
+    }
+    return null;
+  }
 
   function shortString(value, limit) {
     return typeof value === "string" && value.length <= limit ? value : null;
@@ -27,17 +72,15 @@
     const key = Object.keys(board).find((name) => name.startsWith("__reactFiber$") || name.startsWith("__reactInternalInstance$"));
     if (!key) return { error: "react-state-unavailable" };
 
-    let fiber = board[key];
-    let root = fiber;
-    for (let depth = 0; root?.return && depth < 150; depth += 1) root = root.return;
-    if (root?.stateNode?.current === root?.alternate && fiber.alternate) fiber = fiber.alternate;
+    const ancestors = committedAncestors(board[key]);
+    if (!ancestors) return { error: "react-state-unavailable" };
     let game = null;
     let context = null;
     let footer = null;
     let connected = null;
     const seen = new Set();
     // Only inspect the board's ancestors and known prop paths, never the global store.
-    for (let depth = 0; fiber && depth < 100; depth += 1, fiber = fiber.return) {
+    for (const fiber of ancestors) {
       const props = fiber.memoizedProps;
       if (!props || typeof props !== "object") continue;
       const candidates = [props, props.value, props.botState, props.botGameData?.botState, props.sidebarProps, props.sidebarData];
@@ -116,7 +159,9 @@
     };
   }
 
-  window.addEventListener("message", (event) => {
+  let alive = true;
+  const onMessage = (event) => {
+    if (!alive) return;
     if (event.source !== window || event.origin !== location.origin) return;
     const message = event.data;
     if (!message || message.type !== REQUEST || !/^[a-f0-9]{32}$/.test(message.nonce || "") ||
@@ -124,5 +169,17 @@
     let payload;
     try { payload = findState(); } catch { payload = { error: "state-read-failed" }; }
     window.postMessage({ type: RESPONSE, nonce: message.nonce, requestId: message.requestId, payload }, location.origin);
-  });
+  };
+  const instance = {
+    version: 2,
+    isAlive: () => alive,
+    destroy() {
+      if (!alive) return;
+      alive = false;
+      window.removeEventListener("message", onMessage);
+      if (window[INSTANCE] === instance) delete window[INSTANCE];
+    }
+  };
+  window[INSTANCE] = instance;
+  window.addEventListener("message", onMessage);
 }());

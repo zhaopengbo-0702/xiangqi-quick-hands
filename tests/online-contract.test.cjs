@@ -37,7 +37,7 @@ function readAdapter(payload, pathname = '/game/match-123') {
     postMessage(message) {
       receive({
         source: targetWindow, origin: targetWindow.location.origin,
-        data: { type: 'xiangqi-assistant:state', nonce: message.nonce, requestId: message.requestId, payload },
+        data: { type: 'xiangqi-assistant:state:v2', nonce: message.nonce, requestId: message.requestId, payload },
       });
     },
   };
