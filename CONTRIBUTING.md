@@ -27,7 +27,7 @@ npm.cmd run package
 
 `extension/engine/pikafish/pikafish.nnue` 是原生与浏览器共用的网络。更新引擎或网络时，保持版本匹配，更新校验值、对应源码、构建补丁和来源说明，并重新运行测试与打包。
 
-`npm run package` 只生成浏览器独立安装包 `xiangqi-quick-hands.zip`，适合放在 GitHub Releases，不提交到源码历史。包内保留 WASM、NNUE、对应源码、补丁与许可证，不再生成 Windows 完整包。下载缓存、重复网络和展开的上游源码工作树由 `.gitignore` 排除；重建所需的源码归档、补丁、许可证与构建说明随仓库保留。
+`npm run package` 只生成浏览器独立安装包，文件名统一为 `xiangqi-quick-hands-v<版本号>.zip`，版本号读取扩展清单并与 `package.json` 核对；例如当前生成 `xiangqi-quick-hands-v2.5.0.zip`。发行包适合放在 GitHub Releases，不提交到源码历史，`SHA256SUMS.txt` 中必须使用相同的带版本号文件名，发布说明和下载链接也须同步。包内保留 WASM、NNUE、对应源码、补丁与许可证，不再生成 Windows 完整包。下载缓存、重复网络和展开的上游源码工作树由 `.gitignore` 排除；重建所需的源码归档、补丁、许可证与构建说明随仓库保留。
 
 ## 原生兼容性与开发检查
 

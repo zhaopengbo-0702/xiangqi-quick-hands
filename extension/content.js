@@ -44,7 +44,7 @@
     footer{display:flex;flex-wrap:wrap;gap:5px;align-items:center;justify-content:space-between;padding:9px 16px 9px 12px;background:#f7f9f8;border-top:1px solid #e7eae8;color:#58665e;font-size:14px}
     .hidden{display:none!important}:focus-visible{outline:2px solid #158a60;outline-offset:2px}
   </style><section id="panel" class="panel" aria-label="象棋快手控制台">
-  <header id="panel-header" title="拖动标题栏移动；拖动边缘或四角同步放大文字与按钮；双击标题栏恢复默认"><span class="brand">帥</span><strong>象棋快手</strong><button id="quick-stop" class="icon hidden" title="申请暂停（需确认）" aria-label="申请暂停（需确认）">${icon('pause')}</button><button id="reconnect" class="icon" title="重新连接引擎" aria-label="重新连接引擎">${icon('refresh-cw')}</button><button id="collapse" class="icon" title="收起控制台" aria-label="收起控制台">${icon('minus')}</button></header>
+  <header id="panel-header" title="拖动标题栏移动；拖动边缘或四角同步放大文字与按钮；双击标题栏恢复默认"><span class="brand">帥</span><strong id="panel-title">象棋快手</strong><button id="quick-stop" class="icon hidden" title="申请暂停（需确认）" aria-label="申请暂停（需确认）">${icon('pause')}</button><button id="reconnect" class="icon" title="重新连接引擎" aria-label="重新连接引擎">${icon('refresh-cw')}</button><button id="collapse" class="icon" title="收起控制台" aria-label="收起控制台">${icon('minus')}</button></header>
   <div id="pause-request" class="pause-request hidden" role="group" aria-label="暂停确认"><p>确认暂停本局自动行棋？未确认前会继续运行。</p><div><button id="pause-confirm">确认暂停</button><button id="pause-cancel">继续运行</button></div></div>
   <div id="body"><main><div class="scale-tools"><span>界面大小</span><div><button id="scale-down" class="scale-button" title="缩小文字和按钮" aria-label="缩小文字和按钮">A−</button><output id="scale-label">100%</output><button id="scale-up" class="scale-button" title="放大文字和按钮" aria-label="放大文字和按钮">A+</button></div></div><div class="state"><span class="dot" id="dot"></span><span id="status" role="status" aria-live="polite">等待棋盘</span></div><div class="engine" id="engine-name">Pikafish · 本地引擎</div>
   <label class="settings" title="运行中可更改，从下一步生效">搜索模式<select id="mode" aria-label="搜索模式"><option value="adaptive" selected>自适应</option><option value="fixed">固定时限</option></select></label>
@@ -59,6 +59,7 @@
   ${['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'].map(direction => `<span class="resize-handle" data-resize="${direction}" aria-hidden="true"></span>`).join('')}</section>`;
   document.documentElement.append(host);
   const $ = id => root.getElementById(id);
+  $('panel-title').textContent = `象棋快手 v${chrome.runtime.getManifest().version}`;
   let ready = false;
   let auto = false;
   let busy = false;

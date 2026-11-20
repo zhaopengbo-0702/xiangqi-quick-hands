@@ -25,9 +25,16 @@ jobs:
       - name: Check extension and engine integrity
         run: npm.cmd run check
       - name: Package browser standalone edition
-        run: npm.cmd run package
+        id: package
+        run: |
+          npm.cmd run package
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $packageVersion = (Get-Content package.json -Raw -Encoding UTF8 | ConvertFrom-Json).version
+          "version=$packageVersion" >> $env:GITHUB_OUTPUT
       - uses: actions/upload-artifact@v4
         with:
-          name: xiangqi-quick-hands-${{ github.sha }}
-          path: xiangqi-quick-hands.zip
+          name: xiangqi-quick-hands-v${{ steps.package.outputs.version }}
+          path: |
+            xiangqi-quick-hands-v${{ steps.package.outputs.version }}.zip
+            SHA256SUMS.txt
           if-no-files-found: error

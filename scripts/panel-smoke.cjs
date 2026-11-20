@@ -18,6 +18,7 @@ function close(actual, expected, message, tolerance = 1.5) {
 
 async function main() {
   const profile = await fs.mkdtemp(path.join(tempRoot, 'xiangqi-panel-smoke-'));
+  const manifestVersion = JSON.parse(await fs.readFile(path.join(extension, 'manifest.json'), 'utf8')).version;
   const errors = [], checks = [], observations = [];
   let context, page, worker;
   try {
@@ -108,6 +109,35 @@ async function main() {
       assert.ok(r.x >= -.5 && r.y >= -.5 && r.right <= viewport.width + 1 && r.bottom <= viewport.height + 1, 'Panel remains in the viewport: ' + JSON.stringify(r));
     }
     async function screenshot(name) { await panel.screenshot({ path: path.join(results, name + '.png') }); }
+    async function visibleVersion(name) {
+      const title = await page.locator('#panel-title').evaluate(element => {
+        const root = element.getRootNode(), header = root.getElementById('panel-header');
+        const rectangle = node => {
+          const r = node.getBoundingClientRect();
+          return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height };
+        };
+        const range = document.createRange(); range.selectNodeContents(element);
+        const text = range.getBoundingClientRect();
+        const controls = ['quick-stop', 'reconnect', 'collapse'].map(id => root.getElementById(id)).filter(node => node.getBoundingClientRect().width > 0);
+        return { text: element.textContent, title: rectangle(element), header: rectangle(header),
+          ink: { left: text.left, right: text.right, top: text.top, bottom: text.bottom, width: text.width, height: text.height },
+          controls: controls.map(rectangle), visibility: getComputedStyle(element).visibility, display: getComputedStyle(element).display };
+      });
+      assert.equal(title.text, '象棋快手 v' + manifestVersion, name + ': the panel displays the installed manifest version');
+      assert.notEqual(title.visibility, 'hidden', name + ': version text is visible');
+      assert.notEqual(title.display, 'none', name + ': version text is displayed');
+      assert.ok(title.ink.width > 0 && title.ink.height > 0, name + ': version text has visible dimensions');
+      assert.ok(title.ink.left >= title.title.left - 1 && title.ink.right <= title.title.right + 1,
+        name + ': the full title fits its own space: ' + JSON.stringify(title));
+      assert.ok(title.ink.top >= title.header.top - 1 && title.ink.bottom <= title.header.bottom + 1,
+        name + ': version text fits the header vertically');
+      assert.ok(title.controls.every(control => title.ink.right <= control.left + 1),
+        name + ': title and version never overlap header controls: ' + JSON.stringify(title));
+      observations.push({ name, versionTitle: title });
+    }
+
+    await visibleVersion('normal-header-version');
+    checks.push('panel-title-matches-installed-manifest-version');
 
     await page.waitForFunction(() => {
       const root = document.getElementById('xq-quick-hands')?.shadowRoot;
@@ -164,9 +194,11 @@ async function main() {
       }
       close(value.panel.width / normal.panel.width, scale, 'Visible panel width scales with its content', .03);
       assert.match(value.label, new RegExp(String(scale * 100)), 'The current scale is visible');
+      await visibleVersion('scaled-' + scale * 100 + '-header-version');
       await screenshot('panel-scale-' + scale * 100); observations.push({ name: scale * 100 + '%', ...value });
       checks.push('actual-text-icons-buttons-' + scale * 100);
     }
+    checks.push('scaled-header-keeps-entire-version-visible');
 
     await seed({ scale: 1.5, left: 100, top: 40, width: 540, height: 1500 });
     const pauseStructure = await page.locator('#pause-request').evaluate(element => ({
@@ -265,7 +297,9 @@ async function main() {
     await drag(page.locator('#reconnect'), 35, 30);
     actual = await geometry(); close(actual.panel.x, beforeButton.panel.x, 'Header button does not drag left'); close(actual.panel.y, beforeButton.panel.y, 'Header button does not drag top'); close(actual.scale, beforeButton.scale, 'Header button does not resize', .01);
     checks.push('header-controls-do-not-drag');
-    await page.locator('#quick-stop').evaluate(element => element.classList.remove('hidden'));
+    // Keep the busy-only button visible for geometry checks in this game-free
+    // fixture, even when the regular controller tick reapplies its idle class.
+    await page.locator('#quick-stop').evaluate(element => element.style.setProperty('display', 'grid', 'important'));
     const headerControls = await page.evaluate(() => {
       const root = document.getElementById('xq-quick-hands').shadowRoot;
       const header = root.getElementById('panel-header').getBoundingClientRect();
@@ -275,15 +309,22 @@ async function main() {
       });
     });
     assert.ok(headerControls.every(Boolean), 'Pause, reconnect and collapse remain fully inside the header');
+    await visibleVersion('busy-header-version');
+    await screenshot('panel-version-busy');
+    await page.locator('#quick-stop').evaluate(element => element.style.removeProperty('display'));
     checks.push('busy-header-controls-remain-accessible');
+    checks.push('busy-header-keeps-entire-version-visible');
 
     await seed({ scale: 1.5, width: 540, height: 1400, left: 200, top: 50 });
     const expanded = await compact(); await page.locator('#collapse').click();
     const collapsed = await geometry(); assert.ok(collapsed.panel.height < expanded.panel.height / 2); close(collapsed.scale, 1.5, 'Collapse retains scale', .01);
+    await visibleVersion('collapsed-scaled-header-version');
+    await screenshot('panel-version-collapsed-150');
     assert.equal(await page.locator('.resize-handle:visible').count(), 0);
     await drag(header.locator('strong'), 40, 30); await page.locator('#collapse').click();
     actual = await compact(); close(actual.scale, 1.5, 'Expand retains scale', .01); close(actual.panel.height, expanded.panel.height, 'Expand recovers compact natural height', 3);
     checks.push('collapse-drag-expand-retains-readable-scale');
+    checks.push('collapsed-scaled-header-keeps-entire-version-visible');
 
     await page.locator('#collapse').click(); await header.locator('strong').dblclick();
     await waitScale(1); assert.ok((await geometry()).collapsed); await page.locator('#collapse').click();
@@ -298,12 +339,14 @@ async function main() {
     });
     await fits({ width: 320, height: 280 });
     const small = await geometry();
+    await visibleVersion('small-viewport-header-version');
     assert.ok(small.header.height > 0 && small.bodyClient > 0, 'Small viewport retains header and scrollable content');
     assert.ok(small.bodyScroll > small.bodyClient && small.bodyOverflow === 'auto', 'Small viewport scrolls contents');
     await page.locator('#body').evaluate(element => { element.scrollTop = element.scrollHeight; });
     assert.ok(await page.locator('#body').evaluate(element => element.scrollTop > 0));
     await page.reload(); await panel.waitFor({ state: 'visible' }); await fits({ width: 320, height: 280 });
     checks.push('small-viewport-scroll-and-refresh');
+    checks.push('small-viewport-keeps-entire-version-visible');
     await page.setViewportSize({ width: 1600, height: 1600 }); await header.locator('strong').dblclick(); await waitScale(1); await compact();
     checks.push('double-click-reset');
 
@@ -326,7 +369,7 @@ async function main() {
     await panel.waitFor({ state: 'visible' }); assert.equal(await page.locator('#xq-quick-hands').count(), 1); await compact();
     checks.push('destroy-during-scaled-pointer-capture-and-reinject');
     assert.deepEqual(errors, []);
-    const report = { ok: true, manifestVersion: JSON.parse(await fs.readFile(path.join(extension, 'manifest.json'), 'utf8')).version, checks, checkCount: checks.length, observations, finalGeometry: await geometry(), savedLayout: await saved(), pageErrors: errors };
+    const report = { ok: true, manifestVersion, checks, checkCount: checks.length, observations, finalGeometry: await geometry(), savedLayout: await saved(), pageErrors: errors };
     await fs.writeFile(path.join(results, 'panel-resize.json'), JSON.stringify(report, null, 2) + '\n'); console.log(JSON.stringify(report, null, 2));
   } catch (error) {
     await fs.mkdir(results, { recursive: true }); await page?.screenshot({ path: path.join(results, 'panel-resize-failed.png'), fullPage: true }).catch(() => {});

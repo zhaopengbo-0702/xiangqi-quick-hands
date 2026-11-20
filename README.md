@@ -1,4 +1,4 @@
-# 象棋快手
+# 象棋快手 v2.5.0
 
 [下载发行版](https://github.com/zhaopengbo-0702/xiangqi-quick-hands/releases/latest) · [逐版更新记录](CHANGELOG.md) · [问题反馈](https://github.com/zhaopengbo-0702/xiangqi-quick-hands/issues) · [自动检查](https://github.com/zhaopengbo-0702/xiangqi-quick-hands/actions)
 
@@ -25,13 +25,13 @@ Chrome / Edge Manifest V3 插件，在 Xiangqi.com 的人机、在线对局和�
 竞速倒计时在页面可确认时按秒读取并限制本步预算；生存模式无时限，初始时间未知时不冒充已知计时。倒计时耗尽、生命耗尽或网站报告结束后停止。分析和编辑器必须能读取有效完整局面；缺少完整棋谱的长重复局面若触发引擎计数校验，会显示错误，不重置计数或伪造历史。
 
 
-当前版本 **2.4.1**：自动行棋和计算过程中，“搜索模式”“最长计算”也可以直接修改，不再需要先暂停。当前一步保持开始时的参数，新选择从下一步生效并保存；不取消正在计算的着法，不影响原有暂停确认、后台运行和操作变化开关。详细变化见 [CHANGELOG.md](CHANGELOG.md)。
+当前版本 **2.5.0**：下载 ZIP 在文件名中标明版本，打包时自动核对插件版本并生成对应校验文件；主面板标题自动显示已安装扩展的真实版本号。保留运行中修改“搜索模式”“最长计算”的功能，当前一步沿用原参数，新选择从下一步生效并保存；暂停确认、后台运行和操作变化开关继续可用。详细变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 安装
 
 要求 Chrome / Edge 116 或更新版本。只提供浏览器独立版，内置皮卡鱼 NNUE，不需要 Python、Node、API Key、本地加速组件或 HTTP 服务。
 
-从 GitHub Releases 下载唯一的安装包 `xiangqi-quick-hands.zip` 并解压。解压后的扩展目录应直接包含 `manifest.json`；请保留整个目录，安装后不要删除或移动。
+从 GitHub Releases 下载带版本号的安装包 `xiangqi-quick-hands-v2.5.0.zip` 并解压。各版统一按 `xiangqi-quick-hands-v<版本号>.zip` 命名，下载时即可确认版本。解压后的扩展目录应直接包含 `manifest.json`；请保留整个目录，安装后不要删除或移动。
 
 1. Edge 打开 `edge://extensions`；Chrome 打开 `chrome://extensions`。
 2. 打开“开发人员模式”，点击“加载解压缩的扩展”。
@@ -39,7 +39,7 @@ Chrome / Edge Manifest V3 插件，在 Xiangqi.com 的人机、在线对局和�
 4. 已加载旧版插件时，用新版文件替换原扩展目录，再在扩展管理页点击插件的重新加载按钮；新后台会尝试在已打开的 Xiangqi.com 页面恢复一个新的暂停面板。
 5. 刷新 Xiangqi.com，进入自己的棋局，等待右下角显示 `Pikafish · NNUE` 和“引擎就绪”，再点击“开始自动”或“走一步”。首次加载浏览器 NNUE 需要数秒预热，预热不计入行棋时间。
 
-`xiangqi-quick-hands.zip` 包含可独立运行的浏览器扩展、WASM 引擎、NNUE、对应源码和许可证。插件尚未发布到扩展商店。浏览器工具栏的插件按钮可展开或收起面板。
+`xiangqi-quick-hands-v2.5.0.zip` 包含可独立运行的浏览器扩展、WASM 引擎、NNUE、对应源码和许可证。插件尚未发布到扩展商店。浏览器工具栏的插件按钮可展开或收起面板。
 
 控制台操作：拖动边缘或四角时整体等比例缩放，字号、图标和按钮一起变大或缩小，不再单独拉高空白框。面板内的 A− / A+ 每次调整 10%，支持常规 80% 至 250%；屏幕较窄时优先适应可见宽度。高度随实际内容自动收紧，屏幕放不下时正文滚动。拖动标题栏空白处移动，双击恢复 100% 和默认位置；比例与位置会保存，刷新后恢复。旧版已保存的固定高度自动移除。
 
@@ -132,7 +132,7 @@ npm.cmd run package
 
 `scripts/puzzle-smoke.cjs` 使用与公开网站源码结构对应的本地题库和分析夹具，验证题目完成、判错、竞速结束、切题取消和分析不落子。2.2.0 已通过本机 178 项回归测试、16 项面板交互检查以及真实 MV3 / Pikafish WASM 后台与题库检查；这些检查不等于已逐页操作网站所有登录、订阅或棋盘内容。网站结构变化仍可能需要更新适配。
 
-如果面板仍显示旧的 `Specified native messaging host not found.` 错误，先确认扩展管理页已重新加载 2.4.1，再等待新面板恢复，必要时刷新棋盘。新版会使用内置的“NNUE 浏览器引擎”，无需另装组件。网络损坏或 NNUE 校验失败会停止并报告错误，不会跳过验证。开发用本机检查服务见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+如果面板仍显示旧的 `Specified native messaging host not found.` 错误，先确认扩展管理页已重新加载 2.5.0，再等待新面板恢复，必要时刷新棋盘。新版会使用内置的“NNUE 浏览器引擎”，无需另装组件。网络损坏或 NNUE 校验失败会停止并报告错误，不会跳过验证。开发用本机检查服务见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 文件与授权
 

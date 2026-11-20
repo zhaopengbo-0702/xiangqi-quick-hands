@@ -151,6 +151,7 @@ async function controller(initial = {}, options = {}) {
   const invalidated = () => new Error('Extension context invalidated.');
   const runtime = {
     get id() { return runtimeFaults.id ? undefined : 'test-extension'; },
+    getManifest: () => JSON.parse(fs.readFileSync(path.join(__dirname, '../extension/manifest.json'), 'utf8')),
     getURL: file => { if (runtimeFaults.getURL) throw invalidated(); return `chrome-extension://test-extension/${file}`; },
     onMessage: {
       addListener(callback) { runtimeListeners.add(callback); listeners.runtime = callback; },

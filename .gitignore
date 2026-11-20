@@ -1,6 +1,7 @@
 node_modules/
 test-results/
 *.zip
+/SHA256SUMS.txt
 __pycache__/
 *.py[cod]
 *.log
