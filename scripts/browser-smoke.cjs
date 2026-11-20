@@ -346,24 +346,105 @@ async function main() {
         assert.equal(continuous.startClicks,1,'Two background moves must follow one start click');
         assert.equal(continuous.visibilityState,'hidden');
         assert.ok(continuous.ownMoves.every(move=>move.visibilityState==='hidden'),'Both destination clicks must occur in a genuinely hidden document');
+        async function pauseState() {
+          const ui=await page.evaluate(()=>{
+            const root=document.getElementById('xq-quick-hands').shadowRoot;
+            const request=root.getElementById('pause-request'),rect=request.getBoundingClientRect();
+            return {button:root.getElementById('auto').textContent,requestVisible:!request.classList.contains('hidden'),
+              requestHeight:rect.height,bodyCollapsed:root.getElementById('body').classList.contains('hidden')};
+          });
+          const subscription=await worker.evaluate(async()=>{
+            const tabs=await chrome.tabs.query({url:'https://play.xiangqi.com/computer-play'});
+            return chrome.tabs.sendMessage(tabs[0].id,{type:'XQ_BACKGROUND_STATUS'},{frameId:0});
+          });
+          return {...ui,active:subscription.active};
+        }
         await page.evaluate(()=>document.getElementById('xq-quick-hands').shadowRoot.getElementById('quick-stop').click());
+        const firstRequest=await pauseState();
+        assert.equal(firstRequest.requestVisible,true,'The first pause click opens the second confirmation');
+        assert.equal(firstRequest.active,true,'Opening confirmation must leave background execution active');
+        assert.match(firstRequest.button,/暂停自动/);
+        await page.evaluate(()=>document.getElementById('xq-quick-hands').shadowRoot.getElementById('pause-cancel').click());
+        const cancelled=await pauseState();
+        assert.equal(cancelled.requestVisible,false,'Continue closes the pause request');
+        assert.equal(cancelled.active,true,'Continue preserves background execution');
+        await page.evaluate(()=>{
+          const root=document.getElementById('xq-quick-hands').shadowRoot;
+          root.getElementById('quick-stop').click();
+          document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+        });
+        const escaped=await pauseState();
+        assert.equal(escaped.requestVisible,false,'Escape only closes the confirmation');
+        assert.equal(escaped.active,true,'Escape must not pause the running controller');
+        await page.evaluate(()=>document.getElementById('xq-quick-hands').shadowRoot.getElementById('auto').click());
+        assert.equal((await pauseState()).requestVisible,true,'The main automatic button also requests confirmation');
+        await page.waitForFunction(()=>document.getElementById('xq-quick-hands').shadowRoot.getElementById('pause-request').classList.contains('hidden'),null,{polling:100,timeout:10500});
+        const expired=await pauseState();
+        assert.equal(expired.active,true,'An expired confirmation must not pause background execution');
+        await page.evaluate(()=>{
+          const root=document.getElementById('xq-quick-hands').shadowRoot;
+          root.getElementById('collapse').click();
+          root.getElementById('quick-stop').click();
+        });
+        const collapsedRequest=await pauseState();
+        assert.equal(collapsedRequest.bodyCollapsed,true);
+        assert.equal(collapsedRequest.requestVisible,true,'A collapsed panel still exposes pause confirmation');
+        assert.ok(collapsedRequest.requestHeight>0,'Collapsed confirmation retains a visible height');
+        assert.equal(collapsedRequest.active,true);
+        await page.evaluate(()=>document.getElementById('xq-quick-hands').shadowRoot.getElementById('pause-confirm').click());
+        assert.equal((await pauseState()).active,false,'Only the explicit second confirmation stops the controller');
+        await page.evaluate(()=>document.getElementById('xq-quick-hands').shadowRoot.getElementById('collapse').click());
         await page.evaluate(()=>opponentMove());
         await page.waitForTimeout(1300);
         const paused=await page.evaluate(()=>({ownMoves:window.smokeFixture.ownMoves.length,button:document.getElementById('xq-quick-hands').shadowRoot.getElementById('auto').textContent}));
         assert.equal(paused.ownMoves,2,'Manual pause must stop background moves');
         assert.match(paused.button,/开始自动/);
+        await worker.evaluate(async()=>{
+          const tabs=await chrome.tabs.query({url:'https://play.xiangqi.com/computer-play'});
+          await chrome.scripting.executeScript({target:{tabId:tabs[0].id},world:'ISOLATED',func:()=>{
+            globalThis.smokeModalFailures=[];
+            const original=globalThis.XiangqiSiteAdapter.prototype.play;
+            globalThis.XiangqiSiteAdapter.prototype.play=async function(...args){
+              try{return await original.apply(this,args);}
+              catch(error){globalThis.smokeModalFailures.push({code:error.code,message:error.message,actionStage:error.actionStage});throw error;}
+            };
+          }});
+        });
         await page.evaluate(()=>{
           const modal=document.createElement('div');modal.id='blocking-modal';modal.setAttribute('role','dialog');modal.setAttribute('aria-modal','true');
           modal.style.cssText='position:fixed;inset:0;background:#fff9;z-index:2147483646';modal.textContent='Local fixture blocking dialog';document.body.append(modal);
           document.getElementById('xq-quick-hands').shadowRoot.getElementById('auto').click();
         });
-        await page.waitForFunction(()=>{
-          const root=document.getElementById('xq-quick-hands').shadowRoot;
-          return /弹窗遮挡/.test(root.getElementById('status').textContent)&&/开始自动/.test(root.getElementById('auto').textContent);
-        },null,{polling:100,timeout:18000});
+        const modalFailures=await worker.evaluate(async()=>{
+          const tabs=await chrome.tabs.query({url:'https://play.xiangqi.com/computer-play'});
+          for(let i=0;i<150;i++){
+            const result=await chrome.scripting.executeScript({target:{tabId:tabs[0].id},world:'ISOLATED',func:()=>globalThis.smokeModalFailures});
+            if(result[0].result.some(error=>error.code==='XQ_BOARD_OBSCURED'))return result[0].result;
+            await new Promise(resolve=>setTimeout(resolve,100));
+          }
+          throw new Error('The real adapter did not reject the obscuring webpage modal');
+        });
         const modal=await page.evaluate(()=>({status:document.getElementById('xq-quick-hands').shadowRoot.getElementById('status').textContent,ownMoves:window.smokeFixture.ownMoves.length,visibilityState:document.visibilityState}));
+        modal.failures=modalFailures;
         assert.equal(modal.ownMoves,2,'A webpage modal must still prevent background destination input');
-        background={hiddenState,windowState:minimized.bounds.windowState,continuous,paused,modal};
+        assert.equal((await pauseState()).active,true,'A temporary obscuring modal keeps automatic execution active');
+        // The confirmation checks take longer than one turn. Reestablish and
+        // verify the real background state before the recovery move as well.
+        await otherPage.bringToFront();
+        await cdp.send('Browser.setWindowBounds',{windowId:windowInfo.windowId,bounds:{windowState:'minimized'}});
+        await page.waitForFunction(()=>document.visibilityState==='hidden',null,{polling:100,timeout:10000});
+        await page.evaluate(()=>document.getElementById('blocking-modal').remove());
+        await page.waitForFunction(()=>window.smokeFixture?.ownMoves.length===3&&window.smokeAutoplay.searches.length===3,null,{polling:100,timeout:18000});
+        const recovered=await page.evaluate(()=>({ownMoves:window.smokeFixture.ownMoves.length,inputAttempts:window.smokeFixture.ownInputAttempts,
+          visibilityState:document.visibilityState,moveVisibilityState:window.smokeFixture.ownMoves.at(-1).visibilityState,button:document.getElementById('xq-quick-hands').shadowRoot.getElementById('auto').textContent}));
+        assert.equal(recovered.inputAttempts,3,'Clearing a temporary modal resumes with exactly one new destination click');
+        assert.equal(recovered.moveVisibilityState,'hidden','The modal recovery destination must also happen in a hidden document');
+        assert.match(recovered.button,/暂停自动/);
+        await page.evaluate(()=>document.getElementById('xq-quick-hands').shadowRoot.getElementById('quick-stop').click());
+        assert.equal((await pauseState()).active,true,'The later pause request also needs separate confirmation');
+        await page.evaluate(()=>document.getElementById('xq-quick-hands').shadowRoot.getElementById('pause-confirm').click());
+        assert.equal((await pauseState()).active,false);
+        background={hiddenState,windowState:minimized.bounds.windowState,continuous,pauseConfirmation:{firstRequest,cancelled,escaped,expired,collapsedRequest},paused,modal,recovered};
         await cdp.send('Browser.setWindowBounds',{windowId:windowInfo.windowId,bounds:{windowState:'normal'}});
         await page.bringToFront();
       }else{
@@ -391,17 +472,19 @@ async function main() {
     assert.ok(analysis,'The real service worker must receive an analysis request');
     assert.equal(analysis.currentTabUrl,'https://play.xiangqi.com/computer-play');
     const initialPlies=playerSide==='black'?1:0;
-    assert.equal(boardState.moveCount,initialPlies+(backgroundScenario?4:syncScenario||reloadScenario||ackScenario?3:1));
+    assert.equal(boardState.moveCount,initialPlies+(backgroundScenario?5:syncScenario||reloadScenario||ackScenario?3:1));
     if(!backgroundScenario)assert.equal(boardState.lastMove,panel.move);
     assert.match(panel['engine-name'], /Pikafish.*NNUE/, 'The production extension must identify the verified Pikafish NNUE backend');
     assert.ok(Number(panel.depth.match(/\d+/)?.[0])>=6,'Real Pikafish search must finish at least six plies');
     assert.ok(panel.pv.includes(panel.move),'The displayed move must have a searched principal variation');
     if(backgroundScenario){
-      assert.equal(boardState.ownMoves.length,2);
-      assert.equal(boardState.ownInputAttempts,2);
+      assert.equal(boardState.ownMoves.length,3);
+      assert.equal(boardState.ownInputAttempts,3);
       assert.equal(boardState.rejectedOwnInputs,0);
       assert.ok(background.continuous.searches.every(search=>search.depth>=6&&search.elapsedMs<5000));
-      assert.deepEqual(messages.filter(message=>message.type==='XQ_ANALYZE').map(message=>message.historyPlies),[initialPlies,initialPlies+2,initialPlies+4]);
+      const analyzedPlies=messages.filter(message=>message.type==='XQ_ANALYZE').map(message=>message.historyPlies);
+      assert.deepEqual(analyzedPlies.slice(0,2),[initialPlies,initialPlies+2]);
+      assert.ok(analyzedPlies.length>=4&&analyzedPlies.slice(2).every(plies=>plies===initialPlies+4),'Only the currently blocked position may be retried before recovery');
     }else if(syncScenario||ackScenario){
       assert.equal(autoplay.startClicks,1,'Autoplay must continue after one start click');
       assert.match(autoplay.button,/暂停自动/,'Transient updates must leave autoplay running');
@@ -441,7 +524,7 @@ async function main() {
     const report={ok:true,executablePath,manifestVersion:JSON.parse(await fs.readFile(path.join(extension,'manifest.json'),'utf8')).version,
       scenario:forceWasm?
         'real MV3 extension + missing native host + genuine Pikafish NNUE WASM fallback + SPA lobby-to-game + '+
-          (backgroundScenario?'one-click autoplay through genuinely hidden tab + minimized isolated browser + two acknowledged moves + manual pause + blocked webpage modal':
+          (backgroundScenario?'one-click autoplay through genuinely hidden tab + minimized isolated browser + pause confirmation/cancel/Escape/expiry/collapsed panel + webpage modal recovery without repeated destination input':
             ackScenario?'one-click autoplay + '+playerSide+' side + flipped board when black + two 900ms delayed confirmations + shared React child and stale ancestors':
             syncScenario?'one-click autoplay through 300ms inconsistent state updates and two acknowledged own moves':
             reloadScenario?'real runtime reload + preserved live chess document + fresh paused panel + acknowledged move':'fixture move acknowledgement'):

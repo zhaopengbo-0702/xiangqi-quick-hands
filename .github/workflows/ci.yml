@@ -24,12 +24,10 @@ jobs:
         run: npm.cmd test
       - name: Check extension and engine integrity
         run: npm.cmd run check
-      - name: Package browser and Windows editions
+      - name: Package browser standalone edition
         run: npm.cmd run package
       - uses: actions/upload-artifact@v4
         with:
           name: xiangqi-quick-hands-${{ github.sha }}
-          path: |
-            xiangqi-quick-hands.zip
-            xiangqi-pikafish-windows.zip
+          path: xiangqi-quick-hands.zip
           if-no-files-found: error

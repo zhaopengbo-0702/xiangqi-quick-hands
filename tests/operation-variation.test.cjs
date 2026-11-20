@@ -132,7 +132,7 @@ test('a game change during the initial randomized pause stops before selection',
   const controls = fixture({ onWait: state => state.changeGame() });
   await assert.rejects(controls.adapter.play(MOVE, controls.initial, {
     varyOperations: true, deadline: 1000,
-  }), /局面已变化/);
+  }), { code: 'XQ_CONTEXT_CHANGED', actionStage: 'before-selection' });
   assert.equal(controls.reads, 2);
   assert.equal(controls.events.length, 0);
 });

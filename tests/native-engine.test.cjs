@@ -53,6 +53,7 @@ function actualPort(configFile,ports){
   const messages=new Set(),disconnects=new Set();
   let pending=Buffer.alloc(0),closed=false;
   const port={
+    engineLines:[],
     onMessage:{addListener:callback=>messages.add(callback)},
     onDisconnect:{addListener:callback=>disconnects.add(callback)},
     postMessage(message){const body=Buffer.from(JSON.stringify(message));const header=Buffer.alloc(4);header.writeUInt32LE(body.length);process.stdin.write(Buffer.concat([header,body]));},
@@ -64,6 +65,7 @@ function actualPort(configFile,ports){
     pending=Buffer.concat([pending,chunk]);
     while(pending.length>=4){const length=pending.readUInt32LE(0);if(pending.length<length+4)return;
       const value=JSON.parse(pending.subarray(4,length+4).toString('utf8'));pending=pending.subarray(length+4);
+      if(value.type==='engine' && typeof value.line==='string')port.engineLines.push(value.line);
       for(const callback of messages)callback(value);
     }
   });
@@ -115,7 +117,10 @@ test('real Python native host and official NNUE binary run the offscreen adaptiv
       assert.equal(result.nnueVerified,true);
       assert.match(result.engineName,/Pikafish/);
       assert.ok(result.elapsedMs<2500);
-      assert.equal(result.bestmove,result.pv[0]);
+      // With multiple threads, final bestmove can differ from the last exact-score PV.
+      const finalReply=ports.at(-1).engineLines.filter(line=>line.startsWith('bestmove ')).at(-1);
+      assert.equal(result.bestmove,fromNativeLine(finalReply).split(/\s+/)[1]);
+      assert.ok(result.pv.length>0);
       console.log('Official native NNUE:',JSON.stringify({engine:result.engineName,nnue:result.nnue,
         bestmove:result.bestmove,depth:result.depth,elapsedMs:result.elapsedMs,nodes:result.nodes}));
       const cycle=['b1c3','b10c8','c3b1','c8b10'];

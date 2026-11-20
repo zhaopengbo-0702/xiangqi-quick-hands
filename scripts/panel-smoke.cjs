@@ -48,7 +48,7 @@ async function main() {
         const textRect = range.getBoundingClientRect();
         return {
           panel: rect(panel), header: rect(root.getElementById('panel-header')),
-          footer: rect(root.querySelector('footer')), body: rect(body),
+          footer: rect(root.querySelector('footer')), body: rect(body), pauseRequest: rect(root.getElementById('pause-request')),
           text: { width: textRect.width, height: textRect.height },
           icon: rect(root.getElementById('reconnect').querySelector('img')),
           button: rect(root.getElementById('single')),
@@ -90,7 +90,7 @@ async function main() {
     }
     async function compact() {
       const value = await geometry();
-      assert.ok(value.panel.height <= value.header.height + value.body.height + 4 * value.scale,
+      assert.ok(value.panel.height <= value.header.height + value.body.height + value.pauseRequest.height + 4 * value.scale,
         'The outer panel must not reserve a blank region below its content: ' + JSON.stringify(value));
       if (value.bodyScroll <= value.bodyClient + 2) {
         close(value.panel.bottom, value.footer.bottom, 'Panel bottom follows its footer', 3 * value.scale);
@@ -114,6 +114,17 @@ async function main() {
       return root?.getElementById('vary-operations')?.checked === true;
     });
     assert.equal(await page.locator('#vary-operations').isChecked(), true, 'Operation variation is enabled by default');
+    const variationPlacement = await page.locator('#vary-operations').evaluate(input => {
+      const root = input.getRootNode(), label = input.closest('label');
+      const rect = label.getBoundingClientRect(), main = root.querySelector('main').getBoundingClientRect();
+      const start = root.getElementById('auto').getBoundingClientRect();
+      return { text: label.textContent.trim(), insideMain: rect.left >= main.left && rect.right <= main.right && rect.top >= main.top && rect.bottom <= main.bottom,
+        beforeStart: rect.bottom <= start.top, visible: rect.width > 0 && rect.height > 0 && rect.bottom <= innerHeight };
+    });
+    assert.equal(variationPlacement.text, '反侦查辅助（操作变化）');
+    assert.equal(variationPlacement.insideMain, true, 'The switch is in the main panel');
+    assert.equal(variationPlacement.beforeStart, true, 'The switch appears directly above the action buttons');
+    assert.equal(variationPlacement.visible, true, 'The switch is visible in the normal main panel');
     await page.locator('#vary-operations').uncheck();
     await worker.evaluate(async () => {
       for (let i = 0; i < 40; i++) {
@@ -134,7 +145,7 @@ async function main() {
     });
     await page.reload(); await panel.waitFor({ state: 'visible' });
     await page.waitForFunction(() => document.getElementById('xq-quick-hands').shadowRoot.getElementById('vary-operations').checked === true);
-    checks.push('operation-variation-default-and-off-on-refresh-memory');
+    checks.push('main-panel-operation-variation-default-label-and-off-on-refresh-memory');
 
     await seed();
     const normal = await compact();
@@ -156,6 +167,34 @@ async function main() {
       await screenshot('panel-scale-' + scale * 100); observations.push({ name: scale * 100 + '%', ...value });
       checks.push('actual-text-icons-buttons-' + scale * 100);
     }
+
+    await seed({ scale: 1.5, left: 100, top: 40, width: 540, height: 1500 });
+    const pauseStructure = await page.locator('#pause-request').evaluate(element => ({
+      hidden: element.classList.contains('hidden'), outsideBody: !element.getRootNode().getElementById('body').contains(element),
+      afterHeader: element.previousElementSibling?.id === 'panel-header',
+      confirmText: element.querySelector('#pause-confirm').textContent, cancelText: element.querySelector('#pause-cancel').textContent,
+    }));
+    assert.deepEqual(pauseStructure, { hidden: true, outsideBody: true, afterHeader: true, confirmText: '确认暂停', cancelText: '继续运行' });
+    // This fixture has no running game. Reveal the row only for layout checks;
+    // the background smoke verifies actual first/second clicks with real WASM.
+    await page.locator('#pause-request').evaluate(element => element.classList.remove('hidden'));
+    const confirmationExpanded = await compact();
+    assert.ok(confirmationExpanded.pauseRequest.height > 90, 'Enlarged confirmation keeps readable text and controls');
+    await fits({ width: 1600, height: 1600 });
+    await screenshot('panel-pause-confirm-150');
+    await page.locator('#collapse').click();
+    const confirmationCollapsed = await geometry();
+    assert.equal(confirmationCollapsed.collapsed, true);
+    assert.ok(confirmationCollapsed.pauseRequest.height > 90, 'Collapsing the body does not hide the confirmation row');
+    assert.ok(confirmationCollapsed.panel.height < confirmationExpanded.panel.height / 2);
+    for (const id of ['pause-confirm', 'pause-cancel']) {
+      const rect = await page.locator('#' + id).boundingBox();
+      assert.ok(rect && rect.height >= 45 && rect.y + rect.height <= confirmationCollapsed.panel.bottom, id + ' remains visible in the collapsed panel');
+    }
+    await screenshot('panel-pause-confirm-collapsed-150');
+    await page.locator('#pause-cancel').click();
+    assert.equal(await page.locator('#pause-request').isVisible(), false);
+    checks.push('pause-confirmation-readable-outside-collapsible-body');
 
     await seed();
     await page.locator('#scale-up').click(); await waitScale(1.1); await storedScale(1.1);

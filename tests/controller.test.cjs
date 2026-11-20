@@ -48,8 +48,10 @@ async function controller(initial = {}, options = {}) {
   const warmups = [];
   const storageWrites = [];
   const plays = [];
+  const playAttempts = [];
   const viewport = { innerWidth: options.viewport?.width ?? 1280, innerHeight: options.viewport?.height ?? 800 };
   let readError = options.adapterError || null;
+  let playError = options.playError || null;
   let state = { fen: START, mode: 'computer', participant: true, playerSide: 'red', turn: 'red', active: true, historyMode: false, gameKey: 'game:original', boardKey: 'game:opening', moveCount: 0, ...initial };
   function eventTarget(target, observedListeners) {
     const callbacks = new Map();
@@ -112,6 +114,7 @@ async function controller(initial = {}, options = {}) {
           const tag = value.match(new RegExp('<[^>]*\\bid="' + id + '"[^>]*>'))?.[0] || '';
           const element = makeElement(id, tag.match(/^<([\w-]+)/)?.[1].toUpperCase() || 'DIV');
           element.disabled = /\bdisabled\b/.test(tag);
+          if (/class="[^"]*\bhidden\b/.test(tag)) element.classList.add('hidden');
           hostElements.set(id, element);
         }
         const panel = hostElements.get('panel');
@@ -188,6 +191,8 @@ async function controller(initial = {}, options = {}) {
       }
       async play(move, snapshot, options) {
         if (options.isCancelled()) throw new Error('Cancelled');
+        playAttempts.push({ move, snapshot, options });
+        if (playError) throw playError;
         plays.push({ move, snapshot, options });
         state = { ...state, turn: 'black', boardKey: 'game:after-player', moveCount: 1 };
       }
@@ -213,9 +218,10 @@ async function controller(initial = {}, options = {}) {
     get elements() { return elements; }, get host() { return host; },
     get readCount() { return readCount; }, get destroyCount() { return destroyCount; },
     get reloadCount() { return reloadCount; },
-    context, document, location, calls, searches, warmups, plays, listeners, advance, storageWrites, hosts, timers, runtimeListeners,
+    context, document, location, calls, searches, warmups, plays, playAttempts, listeners, advance, storageWrites, hosts, timers, runtimeListeners,
     setState: next => { state = { ...state, ...next }; },
     setReadError: error => { readError = error; },
+    setPlayError: error => { playError = error; },
     invalidateRuntime: (overrides = {}) => { Object.assign(runtimeFaults, { id: true, getURL: true, sendMessage: true, storage: true }, overrides); },
     restoreRuntime: () => { for (const key of Object.keys(runtimeFaults)) runtimeFaults[key] = false; },
     async reinject() { vm.runInContext(source, context); await flush(); },
@@ -430,7 +436,7 @@ test('automatic mode waits through a transient poll sync error and resumes on a 
   assert.equal(app.elements.get('auto').classList.contains('running'), true);
   assert.equal(app.elements.get('auto').disabled, false);
   assert.equal(app.elements.get('single').disabled, true);
-  assert.equal(app.elements.get('status').textContent, '等待棋盘同步');
+  assert.equal(app.elements.get('status').textContent, '等待棋盘同步，恢复后继续');
   assert.equal(app.elements.get('dot').dataset.kind, 'busy');
   app.setState({ turn: 'red', boardKey: 'game:opponent-moved', moveCount: 2 });
   await app.advance(1100);
@@ -451,7 +457,7 @@ test('an initial move read sync error preserves autoplay until a valid snapshot 
   await app.click('auto');
   assert.equal(app.searches.length, 0);
   assert.equal(app.elements.get('auto').classList.contains('running'), true);
-  assert.equal(app.elements.get('status').textContent, '等待棋盘同步');
+  assert.equal(app.elements.get('status').textContent, '等待棋盘同步，恢复后继续');
   await app.advance(330);
   assert.equal(app.searches.length, 0);
   app.setReadError(null);
@@ -488,7 +494,7 @@ test('an unclassified board read failure still pauses automatic play', async () 
   assert.equal(app.searches.length, 0);
 });
 
-test('persistent board sync errors pause after two seconds and recovery requires a new start', async () => {
+test('persistent board sync errors keep waiting and recover automatically within the same game', async () => {
   const app = await controller({ turn: 'black' });
   await app.click('auto');
   app.setReadError(syncError());
@@ -497,15 +503,15 @@ test('persistent board sync errors pause after two seconds and recovery requires
   assert.equal(app.elements.get('auto').classList.contains('running'), true);
   assert.equal(app.searches.length, 0);
   await app.advance(110);
-  assert.equal(app.elements.get('auto').classList.contains('running'), false);
-  assert.equal(app.elements.get('status').textContent, '棋盘持续不同步，已暂停，请刷新棋盘');
-  assert.equal(app.elements.get('dot').dataset.kind, 'error');
+  assert.equal(app.elements.get('auto').classList.contains('running'), true);
+  assert.equal(app.elements.get('status').textContent, '等待棋盘同步，恢复后继续');
+  assert.equal(app.elements.get('dot').dataset.kind, 'busy');
   app.setReadError(null);
   app.setState({ turn: 'red', boardKey: 'game:opponent-moved', moveCount: 2 });
   await app.advance(330);
-  assert.equal(app.searches.length, 0);
-  assert.equal(app.elements.get('auto').classList.contains('running'), false);
-  assert.equal(app.elements.get('single').disabled, false);
+  assert.equal(app.searches.length, 1);
+  assert.equal(app.elements.get('auto').classList.contains('running'), true);
+  assert.equal(app.elements.get('single').disabled, true);
 });
 
 test('a recovered sync error starts a fresh grace period for a later board update', async () => {
@@ -518,7 +524,7 @@ test('a recovered sync error starts a fresh grace period for a later board updat
   app.setReadError(syncError());
   await app.advance(1100);
   assert.equal(app.elements.get('auto').classList.contains('running'), true);
-  assert.equal(app.elements.get('status').textContent, '等待棋盘同步');
+  assert.equal(app.elements.get('status').textContent, '等待棋盘同步，恢复后继续');
   assert.equal(app.searches.length, 0);
 });
 
@@ -544,6 +550,7 @@ test('pausing during a sync wait prevents recovery from restarting autoplay', as
   await app.advance(110);
   assert.equal(app.elements.get('auto').disabled, false);
   await app.click('auto');
+  await app.click('pause-confirm');
   assert.equal(app.elements.get('auto').classList.contains('running'), false);
   app.setReadError(null);
   app.setState({ turn: 'red', boardKey: 'game:opponent-moved', moveCount: 2 });
@@ -713,7 +720,7 @@ test('operation variation defaults on, persists the toggle, and reaches board ac
   const app = await controller();
   assert.equal(app.elements.get('vary-operations').checked, true);
   await app.click('single');
-  assert.equal(app.elements.get('vary-operations').disabled, true);
+  assert.equal(app.elements.get('vary-operations').disabled, false);
   await app.resolveSearch();
   assert.equal(app.plays[0].options.varyOperations, true);
   assert.equal(app.elements.get('vary-operations').disabled, false);
@@ -725,6 +732,23 @@ test('operation variation defaults on, persists the toggle, and reaches board ac
   await restored.click('single');
   await restored.resolveSearch();
   assert.equal(restored.plays[0].options.varyOperations, false);
+});
+
+test('the main panel toggle can change during a search and applies to the following step', async () => {
+  const app = await controller();
+  await app.click('single');
+  const toggle = app.elements.get('vary-operations');
+  assert.equal(toggle.disabled, false);
+  toggle.checked = false;
+  toggle.onchange();
+  await app.resolveSearch();
+  assert.equal(app.plays[0].options.varyOperations, true, 'The current operation keeps its captured choice');
+  app.setState({ turn: 'red', boardKey: 'game:next-player-turn', moveCount: 2 });
+  await app.advance(110);
+  await app.click('single');
+  await app.resolveSearch(1);
+  assert.equal(app.plays[1].options.varyOperations, false, 'The next operation uses the latest choice');
+  assert.ok(app.storageWrites.some(settings => settings.varyOperations === false));
 });
 
 test('adaptive result displays importance and its allocated compute budget', async () => {
@@ -744,6 +768,7 @@ test('pausing cancels the search and discards a late engine response', async () 
   await app.click('auto');
   assert.equal(app.searches.length, 1);
   await app.click('auto');
+  await app.click('pause-confirm');
   assert.equal(app.calls.filter(call => call.type === 'XQ_CANCEL').length, 1);
   await app.resolveSearch();
   assert.equal(app.plays.length, 0);
@@ -788,6 +813,7 @@ test('cancellation finishes prewarming before move controls become available aga
   const app = await controller({}, { deferRewarm: true });
   await app.click('auto');
   await app.click('auto');
+  await app.click('pause-confirm');
   await flush();
   assert.equal(app.warmups.length, 1);
   assert.equal(app.elements.get('auto').disabled, true);
@@ -799,6 +825,130 @@ test('cancellation finishes prewarming before move controls become available aga
   assert.equal(app.elements.get('auto').classList.contains('running'), false);
   await app.resolveSearch();
   assert.equal(app.plays.length, 0);
+});
+
+test('repeated clicks on either pause entry only request confirmation while the current search continues', async () => {
+  const app = await controller();
+  await app.click('auto');
+  for (const button of ['auto', 'auto', 'quick-stop', 'quick-stop']) await app.click(button);
+  assert.equal(app.elements.get('pause-request').classList.contains('hidden'), false);
+  assert.equal(app.elements.get('auto').classList.contains('running'), true);
+  assert.equal(app.calls.filter(call => call.type === 'XQ_CANCEL').length, 0);
+  await app.resolveSearch();
+  assert.equal(app.plays.length, 1);
+  await app.click('pause-confirm');
+  assert.equal(app.elements.get('auto').classList.contains('running'), false);
+  assert.equal(app.elements.get('pause-request').classList.contains('hidden'), true);
+  assert.match(app.elements.get('stop-reason').textContent, /手动确认/);
+});
+
+test('Escape and continue both dismiss a pause request without cancelling automatic play', async () => {
+  const app = await controller({ turn: 'black' });
+  await app.click('auto');
+  await app.click('quick-stop');
+  app.document.dispatchEvent({ type: 'keydown', key: 'Escape' });
+  await flush();
+  assert.equal(app.elements.get('pause-request').classList.contains('hidden'), true);
+  assert.equal(app.elements.get('auto').classList.contains('running'), true);
+  await app.click('quick-stop');
+  await app.click('pause-cancel');
+  assert.equal(app.elements.get('pause-request').classList.contains('hidden'), true);
+  assert.equal(app.elements.get('auto').classList.contains('running'), true);
+  assert.equal(app.calls.filter(call => call.type === 'XQ_CANCEL').length, 0);
+});
+
+test('an expired pause request closes without stopping and its stale confirm cannot pause the game', async () => {
+  const app = await controller({ turn: 'black' });
+  await app.click('auto');
+  await app.click('quick-stop');
+  await app.advance(8001);
+  assert.equal(app.elements.get('pause-request').classList.contains('hidden'), true);
+  await app.click('pause-confirm');
+  assert.equal(app.elements.get('auto').classList.contains('running'), true);
+  assert.equal(app.calls.filter(call => call.type === 'XQ_BACKGROUND').at(-1).active, true);
+});
+
+test('collapsing the panel keeps play running and the separate confirmation remains available', async () => {
+  const app = await controller({ turn: 'black' });
+  await app.click('auto');
+  await app.click('collapse');
+  assert.equal(app.elements.get('body').classList.contains('hidden'), true);
+  assert.equal(app.elements.get('auto').classList.contains('running'), true);
+  await app.click('quick-stop');
+  assert.equal(app.elements.get('pause-request').classList.contains('hidden'), false);
+  await app.click('pause-confirm');
+  assert.equal(app.elements.get('auto').classList.contains('running'), false);
+});
+
+test('reconnect is disabled during automatic play so an accidental reconnect cannot bypass pause confirmation', async () => {
+  const app = await controller();
+  await app.click('auto');
+  const warmups = app.calls.filter(call => call.type === 'XQ_WARMUP').length;
+  assert.equal(app.elements.get('reconnect').disabled, true);
+  await app.click('reconnect');
+  assert.equal(app.elements.get('auto').classList.contains('running'), true);
+  assert.equal(app.calls.filter(call => call.type === 'XQ_CANCEL').length, 0);
+  assert.equal(app.calls.filter(call => call.type === 'XQ_WARMUP').length, warmups);
+});
+
+test('recognized board read interruptions wait and resume in the same game without a manual restart', async () => {
+  for (const code of ['XQ_READ_TIMEOUT', 'XQ_BOARD_NOT_READY']) {
+    const app = await controller({ turn: 'black' });
+    await app.click('auto');
+    app.setReadError(Object.assign(new Error('temporary board read'), { code }));
+    await app.advance(2200);
+    assert.equal(app.elements.get('auto').classList.contains('running'), true, code);
+    assert.equal(app.searches.length, 0, code);
+    app.setReadError(null);
+    app.setState({ turn: 'red', boardKey: 'game:recovered' });
+    await app.advance(700);
+    assert.equal(app.searches.length, 1, code);
+  }
+});
+
+test('disconnect, pending premove and board loading wait for recovery without dropping automatic mode', async () => {
+  for (const condition of [{ connected: false }, { hasPreMove: true }, { loading: true }]) {
+    const app = await controller({ turn: 'black' });
+    await app.click('auto');
+    app.setState({ ...condition, active: false, turn: 'red' });
+    await app.advance(2200);
+    assert.equal(app.elements.get('auto').classList.contains('running'), true, JSON.stringify(condition));
+    assert.equal(app.searches.length, 0);
+    app.setState({ connected: true, hasPreMove: false, loading: false, active: true });
+    await app.advance(110);
+    assert.equal(app.searches.length, 1);
+  }
+});
+
+test('a modal before destination delivery retries after recovery using a fresh computation', async () => {
+  const error = Object.assign(new Error('棋盘被弹窗遮挡'), { code: 'XQ_BOARD_OBSCURED', actionStage: 'selected' });
+  const app = await controller({}, { playError: error });
+  await app.click('auto');
+  await app.resolveSearch();
+  assert.equal(app.elements.get('auto').classList.contains('running'), true);
+  assert.equal(app.playAttempts.length, 1);
+  assert.equal(app.plays.length, 0);
+  await app.advance(550);
+  assert.equal(app.searches.length, 1);
+  app.setPlayError(null);
+  await app.advance(110);
+  assert.equal(app.searches.length, 2);
+  await app.resolveSearch(1);
+  assert.equal(app.plays.length, 1);
+});
+
+test('a read failure after destination dispatch stops and cannot replay the old position automatically', async () => {
+  const error = Object.assign(new Error('落子确认超时'), { code: 'XQ_READ_TIMEOUT', actionStage: 'destination-dispatched' });
+  const app = await controller({}, { playError: error });
+  await app.click('auto');
+  await app.resolveSearch();
+  assert.equal(app.elements.get('auto').classList.contains('running'), false);
+  assert.equal(app.playAttempts.length, 1);
+  assert.match(app.elements.get('stop-reason').textContent, /落子确认超时/);
+  app.setPlayError(null);
+  await app.advance(3000);
+  assert.equal(app.searches.length, 1);
+  assert.equal(app.playAttempts.length, 1);
 });
 
 test('the five-second watchdog cancels a hung engine without moving', async () => {
@@ -887,6 +1037,7 @@ test('background pulses only advance an explicitly active session and cannot res
   assert.equal(app.searches.length, 1);
   assert.ok(replies.every(reply => reply.active));
   await app.click('auto');
+  await app.click('pause-confirm');
   await app.resolveSearch();
   for (const callback of app.runtimeListeners) callback({ type: 'XQ_BACKGROUND_PULSE', sessionId: subscription.sessionId }, { id: 'test-extension' }, reply => replies.push(reply));
   await flush();
@@ -931,6 +1082,7 @@ test('active sessions retry a failed or declined background subscription and ren
     assert.ok(activeRequests > acknowledgedCount, 'acknowledged sessions still renew after two seconds');
     assert.equal(app.searches.length, 0);
     await app.click('auto');
+    await app.click('pause-confirm');
     const pausedCount = activeRequests;
     await app.advance(5000);
     assert.equal(activeRequests, pausedCount, 'paused sessions must not keep renewing');
@@ -947,6 +1099,7 @@ test('a late background subscription acknowledgement cannot revive or suppress t
   } });
   await app.click('auto');
   await app.click('auto');
+  await app.click('pause-confirm');
   await app.click('auto');
   const before = app.calls.filter(call => call.type === 'XQ_BACKGROUND');
   assert.deepEqual(before.map(call => call.active), [true, false, true]);
@@ -975,6 +1128,7 @@ test('background status probes authenticate the extension and report activity wi
   probe({ id: 'test-extension' });
   assert.equal(replies.at(-1).active, true);
   await app.click('auto');
+  await app.click('pause-confirm');
   probe({ id: 'test-extension' });
   assert.equal(replies.at(-1).active, false);
   assert.equal(app.searches.length, 0);

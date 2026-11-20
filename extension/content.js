@@ -31,6 +31,7 @@
     .scale-tools{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;color:#485d51;font-size:14px}
     .scale-tools div{display:flex;align-items:center;gap:6px}.scale-button{min-width:34px;min-height:30px;padding:2px 7px;border:1px solid #bdccc3;border-radius:4px;background:#f6f8f7;color:#243c2e;font-weight:700}.scale-tools output{min-width:42px;text-align:center;font-variant-numeric:tabular-nums}
     .variation{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;color:#485d51;margin-bottom:12px}.variation input{width:17px;height:17px;accent-color:#176d4d;margin:0}
+    .pause-request{flex:none;padding:10px 12px;background:#fff5df;border-bottom:1px solid #e6c891;color:#674b20;font-size:14px}.pause-request p{margin:0 0 8px;line-height:1.5}.pause-request div{display:flex;gap:8px}.pause-request button{flex:1;min-height:34px;border:1px solid #d7b7a5;border-radius:4px;background:#fff;color:#583d2b}.pause-request #pause-confirm{background:#a52b32;color:#fff;border-color:#a52b32}.stop-reason{margin-top:10px;padding:8px;border:1px solid #e2c6bc;border-radius:4px;background:#fff5f1;color:#70402e;font-size:14px;overflow-wrap:anywhere}
     .icon:hover{background:#e6eeea}img{display:inline-block;flex:none}main{padding:12px} .state{display:flex;align-items:center;gap:7px;min-height:24px}
     .dot{width:7px;height:7px;flex:none;border-radius:50%;background:#8a9690}.dot[data-kind=ready]{background:#19845d}.dot[data-kind=busy]{background:#c57b12}.dot[data-kind=error]{background:#ba3137}
     #status{flex:1;line-height:1.6;overflow-wrap:anywhere}.engine{color:#58665e;font-size:14px;margin:3px 0 14px 14px;overflow-wrap:anywhere}
@@ -43,15 +44,17 @@
     footer{display:flex;flex-wrap:wrap;gap:5px;align-items:center;justify-content:space-between;padding:9px 16px 9px 12px;background:#f7f9f8;border-top:1px solid #e7eae8;color:#58665e;font-size:14px}
     .hidden{display:none!important}:focus-visible{outline:2px solid #158a60;outline-offset:2px}
   </style><section id="panel" class="panel" aria-label="象棋快手控制台">
-  <header id="panel-header" title="拖动标题栏移动；拖动边缘或四角同步放大文字与按钮；双击标题栏恢复默认"><span class="brand">帥</span><strong>象棋快手</strong><button id="quick-stop" class="icon hidden" title="立即暂停" aria-label="立即暂停">${icon('pause')}</button><button id="reconnect" class="icon" title="重新连接引擎" aria-label="重新连接引擎">${icon('refresh-cw')}</button><button id="collapse" class="icon" title="收起控制台" aria-label="收起控制台">${icon('minus')}</button></header>
+  <header id="panel-header" title="拖动标题栏移动；拖动边缘或四角同步放大文字与按钮；双击标题栏恢复默认"><span class="brand">帥</span><strong>象棋快手</strong><button id="quick-stop" class="icon hidden" title="申请暂停（需确认）" aria-label="申请暂停（需确认）">${icon('pause')}</button><button id="reconnect" class="icon" title="重新连接引擎" aria-label="重新连接引擎">${icon('refresh-cw')}</button><button id="collapse" class="icon" title="收起控制台" aria-label="收起控制台">${icon('minus')}</button></header>
+  <div id="pause-request" class="pause-request hidden" role="group" aria-label="暂停确认"><p>确认暂停本局自动行棋？未确认前会继续运行。</p><div><button id="pause-confirm">确认暂停</button><button id="pause-cancel">继续运行</button></div></div>
   <div id="body"><main><div class="scale-tools"><span>界面大小</span><div><button id="scale-down" class="scale-button" title="缩小文字和按钮" aria-label="缩小文字和按钮">A−</button><output id="scale-label">100%</output><button id="scale-up" class="scale-button" title="放大文字和按钮" aria-label="放大文字和按钮">A+</button></div></div><div class="state"><span class="dot" id="dot"></span><span id="status" role="status" aria-live="polite">等待棋盘</span></div><div class="engine" id="engine-name">Pikafish · 本地引擎</div>
   <label class="settings">搜索模式<select id="mode" aria-label="搜索模式"><option value="adaptive" selected>自适应</option><option value="fixed">固定时限</option></select></label>
   <label class="settings" id="balance-row">决策偏好<input id="balance" type="range" aria-label="决策偏好" min="0" max="1" step="0.05" value="0.65"><output id="balance-label">稳健 65%</output></label>
   <label class="settings">最长计算<select id="budget" aria-label="最长计算"><option value="800">0.8 秒</option><option value="1800">1.8 秒</option><option value="2800">2.8 秒</option><option value="3500" selected>3.5 秒</option></select></label>
-  <label class="variation" title="增加随机短暂停顿和棋子内部点击位置变化；不保证防检测或防封禁"><input id="vary-operations" type="checkbox" checked>操作变化（随机停顿与点击位置）</label>
+  <label class="variation" title="可随时开关，下一步生效；增加随机短暂停顿和棋子内部点击位置变化，不保证防检测或防封禁"><input id="vary-operations" type="checkbox" checked>反侦查辅助（操作变化）</label>
   <div class="actions"><button id="auto" class="command primary" disabled>${icon('play','开始自动')}</button><button id="single" class="command" disabled>${icon('step-forward','走一步')}</button></div>
   <div class="result"><output id="move" class="move">-</output><span id="side">-</span></div><div class="metrics"><span id="depth">深度 -</span><span id="score">评估 -</span><span id="elapsed">耗时 -</span></div>
   <div class="importance"><span id="importance">重要性 -</span><span id="allocated">预算 -</span></div><div id="pv" class="pv"></div>
+  <div id="stop-reason" class="stop-reason hidden" role="status"></div>
   </main><footer><span id="footer">最多 5 秒 · 至少 6 层</span><span id="plies">第 0 手</span></footer></div>
   ${['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'].map(direction => `<span class="resize-handle" data-resize="${direction}" aria-hidden="true"></span>`).join('')}</section>`;
   document.documentElement.append(host);
@@ -66,6 +69,9 @@
   let booting = false;
   let destroyed = false;
   let watchdog = null;
+  let pauseConfirmationUntil = 0;
+  let pauseConfirmationTimer = null;
+  let retryAfter = 0;
   let tickTimer = null;
   let tickRunning = false;
   let backgroundSubscribed = false;
@@ -210,6 +216,7 @@
       generation++;
       requestId = null;
       clearTimeout(watchdog);
+      closePauseConfirmation();
       clearTimeout(tickTimer);
       for (const waiter of [...pageWaiters]) waiter.finish();
       finishPanelInteraction();
@@ -260,14 +267,14 @@
   function controls() {
     $('auto').innerHTML = icon(auto ? 'pause' : 'play', auto ? '暂停自动' : '开始自动');
     $('auto').classList.toggle('running', auto);
-    $('auto').disabled = !ready || (!canPlay(current) && !auto);
+    $('auto').disabled = destroyed || (!auto && !busy && (!ready || !canPlay(current)));
     $('single').innerHTML = icon('step-forward', analysisOnly(current) ? '分析局面' : '走一步');
     $('single').disabled = !ready || busy || auto || (!analysisOnly(current) && (!canPlay(current) || current.isMyTurnNow === false || current.turn !== current.playerSide));
     $('budget').disabled = destroyed || busy || auto;
     $('mode').disabled = destroyed || busy || auto;
     $('balance').disabled = destroyed || busy || auto;
-    $('vary-operations').disabled = destroyed || busy || auto;
-    $('reconnect').disabled = booting;
+    $('vary-operations').disabled = destroyed;
+    $('reconnect').disabled = booting || auto || busy;
     $('quick-stop').classList.toggle('hidden', !auto && !busy);
   }
   async function rpc(type, payload = {}) {
@@ -305,10 +312,40 @@
   function flushPageTasks() {
     for (const waiter of [...pageWaiters]) if (performance.now() >= waiter.at) waiter.finish();
   }
+  function closePauseConfirmation() {
+    pauseConfirmationUntil = 0;
+    clearTimeout(pauseConfirmationTimer);
+    pauseConfirmationTimer = null;
+    $('pause-request').classList.add('hidden');
+  }
+  function requestPause() {
+    if (!isContextAlive()) { invalidateContext(); return; }
+    if (!auto && !busy) return;
+    // Repeated clicks on the original button never count as confirmation.
+    if (pauseConfirmationUntil > performance.now()) return;
+    pauseConfirmationUntil = performance.now() + 8000;
+    $('pause-request').classList.remove('hidden');
+    pauseConfirmationTimer = setTimeout(closePauseConfirmation, 8000);
+    applyPanelLayout(panelLayout);
+  }
+  function retryAutomatically(error, delay = 600) {
+    if (!auto || destroyed || !onBoard() || error?.actionStage === 'destination-dispatched') return false;
+    const recoverable = ['XQ_STATE_SYNC', 'XQ_READ_TIMEOUT', 'XQ_BOARD_NOT_READY', 'XQ_BOARD_OBSCURED', 'XQ_POSITION_CHANGED'];
+    if (!recoverable.includes(error?.code)) return false;
+    current = null;
+    boardReadFailed = true;
+    retryAfter = performance.now() + delay;
+    const recoveryText = `${error.message}，等待恢复后继续`;
+    if (busy) stop(recoveryText, 'busy', true);
+    status(recoveryText, 'busy');
+    controls();
+    return true;
+  }
   function stop(text, kind = 'ready', preserveAuto = false) {
     if (destroyed) return;
     if (!isContextAlive()) { invalidateContext(); return; }
     auto = preserveAuto && auto;
+    if (!preserveAuto) closePauseConfirmation();
     generation++;
     clearTimeout(watchdog);
     watchdog = null;
@@ -322,19 +359,21 @@
     requestId = null;
     busy = false;
     updateBackgroundSubscription();
+    if (text && !preserveAuto) {
+      $('stop-reason').textContent = `停止原因：${text}`;
+      $('stop-reason').classList.remove('hidden');
+    }
     if (text) status(text, kind);
     controls();
   }
   function waitForSync(error) {
-    if (error?.code !== 'XQ_STATE_SYNC') return false;
+    if (error?.code !== 'XQ_STATE_SYNC' || error.actionStage === 'destination-dispatched') return false;
     current = null;
     boardReadFailed = true;
     if (syncSince === null) syncSince = performance.now();
-    if (busy) stop(undefined, 'ready', true);
-    if (performance.now() - syncSince >= 2000) {
-      if (auto || busy) stop('棋盘持续不同步，已暂停，请刷新棋盘', 'error');
-      else status('棋盘持续不同步，已暂停，请刷新棋盘', 'error');
-    } else status('等待棋盘同步', 'busy');
+    const syncText = auto ? '等待棋盘同步，恢复后继续' : '等待棋盘同步';
+    if (busy) stop(syncText, 'busy', true);
+    status(syncText, 'busy');
     controls();
     return true;
   }
@@ -363,11 +402,12 @@
   const onSupportedRoute = () => onBoard() || (location.origin === 'https://play.xiangqi.com' && ['/play', '/computer', '/puzzle', '/puzzle/custom', '/puzzle/stats', '/puzzle/record', '/puzzle/race'].includes(location.pathname));
 
   async function moveOnce() {
-    if (destroyed || busy || !ready || !onBoard()) return;
+    if (destroyed || busy || !ready || !onBoard() || performance.now() < retryAfter) return;
     if (!isContextAlive()) { invalidateContext(); return; }
     if (window.innerWidth < 700) setCollapsed(true);
     const ticket = ++generation;
     const started = performance.now();
+    const varyOperations = $('vary-operations').checked;
     busy = true;
     updateBackgroundSubscription();
     controls();
@@ -376,6 +416,10 @@
       if (ticket !== generation) return;
       current = snapshot;
       const suggestionOnly = analysisOnly(snapshot);
+      if (!suggestionOnly && !snapshot.historyMode && snapshot.participant !== false &&
+          (snapshot.loading || snapshot.hasPreMove || snapshot.connected === false)) {
+        throw Object.assign(new Error('棋盘暂未就绪'), { code: 'XQ_BOARD_NOT_READY', actionStage: 'before-selection' });
+      }
       if (!suggestionOnly && (!canPlay(snapshot) || snapshot.isMyTurnNow === false || snapshot.turn !== snapshot.playerSide)) throw new Error('当前棋盘不允许我方行棋');
       if (!suggestionOnly && lastPlayed === snapshot.boardKey) throw new Error('该局面已落子，等待棋盘更新');
       status('正在计算', 'busy');
@@ -405,7 +449,7 @@
       } else {
         status('正在落子', 'busy');
         await adapter.play(result.bestmove, snapshot, { deadline: started + Math.min(4900, turnLimit),
-          isCancelled: () => ticket !== generation, varyOperations: $('vary-operations').checked });
+          isCancelled: () => ticket !== generation, varyOperations });
       }
       if (ticket !== generation) return;
       if (!suggestionOnly) lastPlayed = snapshot.boardKey;
@@ -431,7 +475,7 @@
         void boot();
       }
     } catch (error) {
-      if (ticket === generation && !waitForSync(error)) stop(error.message, 'error');
+      if (ticket === generation && !waitForSync(error) && !retryAutomatically(error)) stop(error.message, 'error');
     } finally {
       if (ticket === generation) {
         clearTimeout(watchdog);
@@ -449,6 +493,7 @@
     if (!isContextAlive()) { invalidateContext(); return; }
     tickRunning = true;
     clearTimeout(tickTimer);
+    if (pauseConfirmationUntil && performance.now() >= pauseConfirmationUntil) closePauseConfirmation();
     if ((auto || busy) && onBoard()) updateBackgroundSubscription();
     try {
       if (observedRoute !== location.pathname) {
@@ -492,8 +537,9 @@
             else if (current.historyMode) stop('棋谱回放中，已暂停');
             else if (current.mode === 'online' && current.participant !== true) stop('观战棋盘，已暂停');
             else if (Number.isFinite(current.clockRemainingMs) && current.clockRemainingMs < 1000) stop('剩余时间不足，已暂停');
-            else if (current.hasPreMove) stop('预走子待执行，已暂停');
-            else if (current.connected === false) stop('对局已断线，已暂停');
+            else if (current.hasPreMove) status('等待网站完成预走子，恢复后继续', 'busy');
+            else if (current.connected === false) status('等待对局重新连接，恢复后继续', 'busy');
+            else if (current.loading) status('等待棋盘加载，恢复后继续', 'busy');
             else if (!current.active) stop('本局已结束');
             else if (current.turn === current.playerSide && current.isMyTurnNow !== false && lastPlayed !== current.boardKey) void moveOnce();
             else status('等待对方行棋');
@@ -510,7 +556,7 @@
       if (destroyed || handleContextError(error)) return;
       current = null;
       boardReadFailed = true;
-      if (!waitForSync(error)) {
+      if (!waitForSync(error) && !retryAutomatically(error)) {
         syncSince = null;
         if (auto || busy) stop(error.message, 'error');
         else if (ready) status(error.message, 'error');
@@ -523,8 +569,11 @@
   }
 
   $('auto').onclick = () => {
-    if (auto || busy) { stop('已暂停'); return; }
+    if (auto || busy) { requestPause(); return; }
     auto = true;
+    closePauseConfirmation();
+    $('stop-reason').classList.add('hidden');
+    retryAfter = 0;
     updateBackgroundSubscription();
     status('自动行棋已开启');
     controls();
@@ -545,7 +594,12 @@
     $('collapse').ariaLabel = $('collapse').title;
   }
   $('collapse').onclick = () => setCollapsed(!$('body').classList.contains('hidden'));
-  $('quick-stop').onclick = () => stop('已暂停');
+  $('quick-stop').onclick = requestPause;
+  $('pause-confirm').onclick = () => {
+    if (pauseConfirmationUntil > performance.now() && (auto || busy)) stop('已暂停（手动确认）');
+    else closePauseConfirmation();
+  };
+  $('pause-cancel').onclick = closePauseConfirmation;
   $('budget').onchange = () => persist({ movetime: Number($('budget').value) });
   $('mode').onchange = () => {
     $('balance-row').classList.toggle('hidden', $('mode').value === 'fixed');
@@ -593,7 +647,7 @@
   }
   chrome.runtime.onMessage.addListener(onRuntimeMessage);
   function onVisibilityChange() { if (auto || busy) { flushPageTasks(); void tick(); } }
-  function onKeyDown(event) { if (event.key === 'Escape' && (auto || busy)) stop('已暂停'); }
+  function onKeyDown(event) { if (event.key === 'Escape') closePauseConfirmation(); }
   function onPageHide() {
     if (requestId && isContextAlive()) void rpc('XQ_CANCEL', { requestId }).catch(() => {});
     dispose();

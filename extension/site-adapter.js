@@ -28,6 +28,8 @@
 
   function positionKey(fen) { return normalizeFen(fen).split(" ").slice(0, 2).join(" "); }
 
+  function adapterError(message, code) { return Object.assign(new Error(message), { code }); }
+
   function randomBetween(minimum, maximum, random = Math.random) {
     const sample = random();
     const fraction = Number.isFinite(sample) ? Math.min(1, Math.max(0, sample)) : 0.5;
@@ -109,7 +111,10 @@
       "invalid-position": "棋盘局面无效",
       "state-read-failed": "读取棋盘失败"
     };
-    if (!raw || raw.error) throw new Error(messages[raw?.error] || "无法读取对局");
+    if (!raw || raw.error) {
+      if (raw?.error === "board-not-ready") throw adapterError(messages[raw.error], "XQ_BOARD_NOT_READY");
+      throw new Error(messages[raw?.error] || "无法读取对局");
+    }
     const mode = ["online", "puzzle", "analysis"].includes(raw.mode) ? raw.mode : "computer";
     const participant = mode === "analysis" ? false : mode === "computer" ? raw.participant !== false : raw.participant === true;
     const playerSide = ["red", "black"].includes(raw.playerSide) ? raw.playerSide : null;
@@ -183,30 +188,32 @@
     }
 
     async read(options = {}) {
-      if (this.window.location.hostname !== "play.xiangqi.com" || !routeMode(this.window.location.pathname)) throw new Error("请打开象棋对局页面");
+      if (this.window.location.hostname !== "play.xiangqi.com" || !routeMode(this.window.location.pathname)) throw adapterError("请打开象棋对局页面", "XQ_CONTEXT_CHANGED");
       const timeout = Number.isFinite(options.timeoutMs) ? Math.max(0, Math.min(650, options.timeoutMs)) : 650;
       const remaining = Number.isFinite(options.deadline) ? Math.min(timeout, options.deadline - this.window.performance.now()) : timeout;
-      if (remaining <= 0) throw new Error("本步已超时，停止落子");
+      if (remaining <= 0) throw adapterError("本步已超时，停止落子", "XQ_ACTION_TIMEOUT");
       const requestId = ++this.requestId;
       const raw = await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => { this.pending.delete(requestId); reject(new Error("读取棋盘超时，请刷新页面")); }, remaining);
+        const timer = setTimeout(() => { this.pending.delete(requestId); reject(adapterError("读取棋盘超时，等待重试", "XQ_READ_TIMEOUT")); }, remaining);
         this.pending.set(requestId, { resolve, reject, timer });
         this.window.postMessage({ type: "xiangqi-assistant:read:v3", nonce: this.nonce, requestId }, this.window.location.origin);
       });
-      if (!raw?.error && raw?.mode !== routeMode(this.window.location.pathname)) throw new Error("对局类型已变化，请重新读取棋盘");
-      if (!raw?.error && raw?.route !== this.window.location.pathname) throw new Error("对局页面已变化，停止落子");
+      if (!raw?.error && raw?.mode !== routeMode(this.window.location.pathname)) throw adapterError("对局类型已变化，请重新读取棋盘", "XQ_CONTEXT_CHANGED");
+      if (!raw?.error && raw?.route !== this.window.location.pathname) throw adapterError("对局页面已变化，停止落子", "XQ_CONTEXT_CHANGED");
       return normalizeSnapshot(raw);
     }
 
     assertReady(snapshot, expected) {
       if (!snapshot.participant || snapshot.viewOnly) throw new Error("观战或只读棋盘，无法自动落子");
       if (snapshot.clockRemainingMs !== null && snapshot.clockRemainingMs < 150) throw new Error("我方剩余时间不足，停止落子");
+      if (!snapshot.historyMode && (snapshot.loading || snapshot.hasPreMove || snapshot.connected === false)) throw adapterError("棋盘暂未就绪，等待恢复", "XQ_BOARD_NOT_READY");
       if (!snapshot.active || snapshot.historyMode || snapshot.turn !== snapshot.playerSide || snapshot.isMyTurnNow === false) throw new Error("棋盘当前不允许落子");
-      if (expected && (snapshot.boardKey !== expected.boardKey || snapshot.flipBoard !== expected.flipBoard)) throw new Error("计算期间局面已变化");
+      if (expected && snapshot.gameKey !== expected.gameKey) throw adapterError("对局已变化，停止落子", "XQ_CONTEXT_CHANGED");
+      if (expected && (snapshot.boardKey !== expected.boardKey || snapshot.flipBoard !== expected.flipBoard)) throw adapterError("计算期间局面已变化", "XQ_POSITION_CHANGED");
       const board = this.document.querySelector("#game-grid");
-      if (!board || board.querySelectorAll(".square").length !== 90) throw new Error("无法识别棋盘布局");
+      if (!board || board.querySelectorAll(".square").length !== 90) throw adapterError("等待棋盘布局加载", "XQ_BOARD_NOT_READY");
       const rect = board.getBoundingClientRect();
-      if (rect.width < 90 || rect.height < 100) throw new Error("无法识别棋盘尺寸");
+      if (rect.width < 90 || rect.height < 100) throw adapterError("等待棋盘尺寸恢复", "XQ_BOARD_NOT_READY");
       return board;
     }
 
@@ -215,7 +222,7 @@
       return Array.from(this.document.querySelectorAll("#game-grid .square")).find((element) => element.classList.contains(`${cell.rank}-${cell.file}`));
     }
 
-    clickTarget(element, vary = false) {
+    clickTarget(element, vary = false, beforeDispatch) {
       if (!element) throw new Error("无法定位落子位置");
       const rect = element.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) throw new Error("落子位置不可见");
@@ -223,17 +230,22 @@
       const clientY = rect.top + rect.height * (vary ? randomBetween(0.42, 0.58, this.random) : 0.5);
       const hit = this.document.elementFromPoint(clientX, clientY);
       const board = this.document.querySelector("#game-grid");
-      if (!hit || !board?.contains(hit)) throw new Error("棋盘被弹窗遮挡");
+      if (!hit || !board?.contains(hit)) throw adapterError("棋盘被弹窗遮挡", "XQ_BOARD_OBSCURED");
       const init = { bubbles: true, cancelable: true, view: this.window, clientX, clientY, button: 0 };
+      beforeDispatch?.();
       for (const type of ["mousedown", "mouseup", "click"]) {
         element.dispatchEvent(new this.window.MouseEvent(type, { ...init, buttons: type === "mousedown" ? 1 : 0 }));
       }
     }
 
     async play(bestmove, expected, options = {}) {
+      let actionStage = "before-selection";
+      const setStage = stage => { actionStage = stage; options.onStage?.(stage); };
+      try {
+      setStage("before-selection");
       const checkAction = () => {
-        if (options.isCancelled?.()) throw new Error("已取消落子");
-        if (Number.isFinite(options.deadline) && this.window.performance.now() >= options.deadline) throw new Error("本步已超时，停止落子");
+        if (options.isCancelled?.()) throw adapterError("已取消落子", "XQ_CANCELLED");
+        if (Number.isFinite(options.deadline) && this.window.performance.now() >= options.deadline) throw adapterError("本步已超时，停止落子", "XQ_ACTION_TIMEOUT");
       };
       checkAction();
       const move = parseMove(bestmove);
@@ -260,6 +272,7 @@
       if (!source) throw new Error("无法定位待走棋子");
       checkAction();
       if (!source.classList.contains("selected-piece")) this.clickTarget(source, Boolean(pattern));
+      setStage("selected");
       if (pattern) await this.operationPause(pattern.afterSelectionMs, options);
       else await this.wait(30);
       checkAction();
@@ -270,7 +283,8 @@
       const destination = this.squareElement(move.to, beforeDestination);
       const target = destination && Array.from(destination.children).find((element) => !element.classList.contains("top-indicator") && !element.classList.contains("column-index"));
       checkAction();
-      this.clickTarget(target, Boolean(pattern));
+      this.clickTarget(target, Boolean(pattern), () => setStage("destination-dispatched"));
+      if (actionStage !== "destination-dispatched") setStage("destination-dispatched");
       const confirmationDeadline = Math.min(this.window.performance.now() + 1500,
         Number.isFinite(options.deadline) ? options.deadline : Infinity);
       // Wait for the original click only; never replay an uncertain destination.
@@ -284,14 +298,19 @@
           continue;
         }
         checkAction();
-        if (after.gameKey !== initial.gameKey || after.historyMode) throw new Error("确认落子时对局已变化");
+        if (after.gameKey !== initial.gameKey || after.historyMode) throw adapterError("确认落子时对局已变化", "XQ_CONTEXT_CHANGED");
         if (after.moveCount > initial.moveCount && (after.fen.split(" ")[0] === predicted || after.recentPositions.some((entry) => entry.fen.split(" ")[0] === predicted))) return after;
-        if (after.boardKey !== initial.boardKey) throw new Error("网站局面与预期不同，已停止");
+        if (after.boardKey !== initial.boardKey) throw adapterError("网站局面与预期不同，已停止", "XQ_POSITION_CHANGED");
         await this.wait(35);
         checkAction();
       }
       checkAction();
-      throw new Error("网站未在时限内确认落子，已暂停，请检查棋盘");
+      throw adapterError("网站未在时限内确认落子，已暂停，请检查棋盘", "XQ_ACTION_TIMEOUT");
+      } catch (error) {
+        const failure = error instanceof Error ? error : new Error(String(error));
+        failure.actionStage = actionStage;
+        throw failure;
+      }
     }
     wait(milliseconds) {
       return this.delay ? this.delay(milliseconds) : new Promise(resolve => setTimeout(resolve, milliseconds));

@@ -67,6 +67,33 @@ async function main() {
         const r = document.getElementById('xq-quick-hands')?.shadowRoot;
         return r && !r.getElementById('single').disabled;
       }, null, { timeout: 30000 });
+      await worker.evaluate(async () => {
+        const tabs = await chrome.tabs.query({ url: 'https://play.xiangqi.com/*' });
+        await chrome.scripting.executeScript({ target: { tabId: tabs[0].id }, world: 'ISOLATED', func: () => {
+          const original = globalThis.XiangqiSiteAdapter.prototype.play;
+          globalThis.puzzleSmokePlayOptions = [];
+          globalThis.XiangqiSiteAdapter.prototype.play = function(move, snapshot, options) {
+            globalThis.puzzleSmokePlayOptions.push({ move, varyOperations: options.varyOperations });
+            return original.call(this, move, snapshot, options);
+          };
+        } });
+      });
+    }
+    async function playOptions() {
+      return worker.evaluate(async () => {
+        const tabs = await chrome.tabs.query({ url: 'https://play.xiangqi.com/*' });
+        const result = await chrome.scripting.executeScript({ target: { tabId: tabs[0].id }, world: 'ISOLATED', func: () => globalThis.puzzleSmokePlayOptions });
+        return result[0].result;
+      });
+    }
+    async function savedVariation(expected) {
+      await worker.evaluate(async expected => {
+        for (let i = 0; i < 40; i++) {
+          if ((await chrome.storage.local.get('varyOperations')).varyOperations === expected) return;
+          await new Promise(resolve => setTimeout(resolve, 25));
+        }
+        throw new Error('Operation variation setting was not saved');
+      }, expected);
     }
     async function state() {
       return page.evaluate(() => {
@@ -92,7 +119,11 @@ async function main() {
       if (ending === 'complete') await page.evaluate(() => window.fixtureActions.completeNext());
       if (ending === 'wrong') await page.evaluate(() => window.fixtureActions.wrongNext());
       await page.locator('#auto').click();
-      assert.equal((await state()).variationDisabled, true, 'Variation settings cannot change during an active operation');
+      await page.waitForFunction(() => /正在计算/.test(document.getElementById('xq-quick-hands').shadowRoot.getElementById('status').textContent));
+      assert.equal((await state()).variationDisabled, false, 'The main-panel switch remains usable during an active operation');
+      await page.locator('#vary-operations').uncheck();
+      await savedVariation(false);
+      assert.equal((await state()).variationChecked, false, 'The user can disable the option while computation is running');
       if (ending === 'complete') await waitPaused('题目已完成');
       if (ending === 'wrong') await waitPaused('走法未通过');
       if (ending === 'race') {
@@ -105,7 +136,10 @@ async function main() {
       assert.equal(after.ownMoves.length, 1);
       assert.equal(after.singleDisabled, true);
       assert.equal(after.answerReads, 0);
-      assert.equal(after.variationDisabled, false, 'Variation settings become available after automatic pause');
+      assert.equal(after.variationDisabled, false, 'The switch remains available after automatic pause');
+      assert.equal(after.variationChecked, false, 'The changed setting remains off when the current move finishes');
+      const captured = await playOptions();
+      assert.deepEqual(captured, [{ move: after.ownMoves[0].uci, varyOperations: true }], 'The current move retains the setting captured before the user changed it');
       assert.equal(after.pointerInputs.length, 6, 'Each move emits exactly one source and one destination event sequence');
       for (let i = 0; i < after.pointerInputs.length; i += 3) {
         const sequence = after.pointerInputs.slice(i, i + 3);
@@ -118,7 +152,9 @@ async function main() {
         }
       }
       if (ending !== 'wrong') assert.ok(Number(after.depth.match(/\d+/)?.[0]) >= 6);
-      cases.push({ route, ending, before, after });
+      cases.push({ route, ending, before, after, capturedPlayOptions: captured });
+      await page.locator('#vary-operations').check();
+      await savedVariation(true);
     }
 
     await open('/puzzle/123/P');
