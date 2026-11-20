@@ -1,23 +1,41 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>象棋快手 v2.6.1 · 安装说明</title>
-<style>*{box-sizing:border-box}body{margin:0;background:#f5f7f6;color:#24352b;font:15px/1.8 "Microsoft YaHei",system-ui,sans-serif;letter-spacing:0}main{max-width:780px;margin:36px auto;padding:0 24px 40px}header{display:flex;gap:14px;align-items:center;border-bottom:1px solid #d9e0db;padding-bottom:20px}header img{width:54px;height:54px}h1{margin:0;font-size:27px}header p{margin:0;color:#6b776f}h2{font-size:18px;margin:26px 0 8px}ol{padding-left:24px}li{margin:12px 0}code{font:14px Consolas,monospace;background:#e9eeeb;padding:3px 7px;border-radius:3px;overflow-wrap:anywhere}a{color:#176d4d}table{width:100%;border-collapse:collapse;margin-top:12px}th,td{text-align:left;padding:10px 12px;border-bottom:1px solid #d9e0db}th{color:#637268;font-weight:500}p{margin:10px 0}.note{color:#6b776f;font-size:13px}footer{margin-top:28px;border-top:1px solid #d9e0db;padding-top:16px;font-size:13px}@media(max-width:500px){main{margin-top:20px;padding:0 16px 28px}h1{font-size:23px}th,td{padding:8px 5px;font-size:13px}}</style></head>
-<body><main><header><img src="extension/icons/icon128.png" alt="象棋快手图标"><div><h1>象棋快手 v2.6.1</h1><p>Pikafish NNUE · 对局、题库与棋盘分析</p></div></header>
-<h2>安装与更新 2.6.1</h2><ol><li>从 <a href="https://github.com/zhaopengbo-0702/xiangqi-quick-hands/releases/latest" target="_blank" rel="noopener">GitHub Releases</a> 下载唯一的浏览器独立包 <code>xiangqi-quick-hands-v2.6.1.zip</code> 并解压，保留整个目录。</li><li>Edge 地址栏输入 <code>edge://extensions</code>；Chrome 输入 <code>chrome://extensions</code>，打开“开发人员模式”，点击“加载解压缩的扩展”。</li><li>选择刚解压、直接包含 <code>manifest.json</code> 的目录；若使用仓库源码，则选择本文件旁的 <a href="extension/">extension 文件夹</a>。已有插件时，用新版文件替换原目录再点击重新加载，确认版本为 2.6.1；后台会尝试在已打开的棋盘页恢复新面板。</li><li>打开 <a href="https://play.xiangqi.com/play" target="_blank" rel="noopener">在线对局</a> 或 <a href="https://play.xiangqi.com/computer-play" target="_blank" rel="noopener">人机对弈</a>，进入自己的棋局。</li><li>等待右下角显示“Pikafish · NNUE”和“引擎就绪”，点击“开始自动”或“走一步”。首次加载 NNUE 会预热数秒。</li></ol>
-<p class="note">只提供浏览器独立版，需要 Chrome / Edge 116 或更新版本。内置 WASM 引擎与 NNUE，无需 Python、Node、API Key、本地组件或 HTTP 服务。</p>
-<h2>运行中调整参数</h2><p>“搜索模式”“最长计算”和自适应模式下的“决策偏好”在自动行棋、正在计算或等待对方时都可修改，无需暂停。拖动偏好滑条时百分比实时更新，松开后保存，刷新后恢复。本步保持开始时的设置，新选择从下一步生效，不取消或重启当前计算。固定时限模式隐藏偏好条，切回自适应后显示。2.5.1 修复了旧版运行中误锁偏好滑条的问题。</p>
-<h2>推荐参数</h2><table><tbody><tr><th>模式</th><td>自适应</td></tr><tr><th>稳健度</th><td>0.65</td></tr><tr><th>最长计算</th><td>3.5 秒</td></tr><tr><th>普通局面搜索深度</th><td>至少 6 层</td></tr><tr><th>派发落点前动作预算</th><td>最多 5 秒，过期不补点；发送后的只读确认独立等待</td></tr></tbody></table>
-<p>候选接近、主变化不稳定、评分波动、重要吃子或应将时增加计算时间。候选明显领先且稳定时提前结束。控制台可查看重要性、预算、实际耗时和后续变化。</p>
-<h2>评估显示与插值</h2><p>2.6.1 先计算上一版未舍入、未钳制的 <code>u = tanh(0.015 × cp)</code>，再用保单调 PCHIP 分段三次 Hermite 插值，得到 <code>y = sign(u) × P(|u|)</code>。插值输入是上一版的 tanh 结果，不是原始 cp，也不是上一版已显示的六位小数。除以 100 是旧单位换算，tanh 是解析变换，只有 u 到 y 这一步是插值。</p>
-<table><thead><tr><th>上一版未舍入绝对值 |u|</th><th>本版插值绝对值 P(|u|)</th></tr></thead><tbody><tr><td>0</td><td>0</td></tr><tr><td>0.635148952387</td><td>0.5</td></tr><tr><td>0.978026114739</td><td>0.7</td></tr><tr><td>0.999753210848</td><td>0.9</td></tr><tr><td>0.999999969540</td><td>0.99</td></tr><tr><td>1</td><td>1</td></tr></tbody></table>
-<p>六个节点使用表中精确十进制字面值，负分按奇对称处理。插值后才限制到 ±0.999999 并显示六位小数，零为 <code>0.000000</code>，面板只显示最终分数。局势分档按最终显示绝对值：小于 0.5 为均势；0.5 至小于 0.7 为稍优/稍劣；0.7 至小于 0.9 为明显优势/明显劣势；0.9 至小于 0.99 为大幅优势/大幅劣势；达到 0.99 为接近胜势/接近败势。舍入到边界就归入该边界起始的区间。</p><p>各次转换、节点斜率、五个区间的插值函数和系数完整记录在 <a href="docs/evaluation-mapping.md">评估转换与插值函数</a>。运行时不需要 SciPy，SciPy 仅用于开发参考验证。插值不增加引擎精度，不代表校准胜率或获胜保证，极大分数仍可能显示相同。杀棋继续显示 <code>杀棋 N</code>，不参加普通插值或分档；引擎评分、搜索、着法排序和时间分配保持不变。</p>
-<p>在线大厅等待进入自己的对局。观战棋盘禁用自动落子；限时对局会根据剩余时间缩短计算预算。新局需要重新开启自动行棋。</p>
-<p class="note">使用官方 Pikafish 的 Alpha-Beta 搜索与 NNUE 评估。限时搜索无法保证全局最优；重要性是时间分配估计。支持切换到后台或最小化后继续执行；电脑睡眠、页面冻结或关闭浏览器时无法持续运行。NNUE 网络有独立许可，未经授权不得商用。</p>
-<h2>题库与分析棋盘</h2><p>支持普通题库、练习、挑战与竞速题目；完成、判错或切题后暂停，不读取答案树，不自动进入下一题。每日入口若进入同一题目页面，使用相同适配。在分析、复盘、棋谱和课程等页面，识别到有效棋盘后可点击“分析局面”，只显示引擎建议，不自动落子；编辑器不会自动摆棋。详细页面范围见 README。</p>
-<h2>面板大小与位置</h2><p>拖动面板四边或四角时，文字、图标、按钮一起按比例缩放；也可使用面板内的 A− / A+ 每次调整 10%。默认正文 16px，辅助信息 14px。高度随实际内容收紧，不再保留旧版底部的大块空白；超出屏幕时正文可滚动。拖动标题栏空白处移动，双击恢复 100% 和默认位置；比例和位置自动保存。旧版固定高度会自动移除。</p>
-<h2>操作变化</h2><p>默认开启“反侦查辅助（操作变化）”，在选子前后加入短暂随机等待，并在棋子中心小范围内变化点击位置；主面板内可随时开启或关闭并记住选择；运行中切换从下一步生效。时间不足时压缩等待，暂停或局面变化后停止，不延长原落子时限。这不保证避开官方反作弊或避免封禁，合成输入仍可被识别。</p>
-<h2>后台执行</h2><p>开启自动行棋后，可以切换标签页、让其他窗口覆盖浏览器或最小化，插件会继续读取棋盘和落子，不会抢回前台焦点。手动暂停、关闭页面或浏览器后停止。电脑睡眠、页面被浏览器冻结或丢弃时无法持续执行；恢复后拒绝过期落子。网页内弹窗遮住棋盘时仍会停止。</p>
-<h2>防误触暂停</h2><p>先点“暂停自动”或右上角暂停图标，只会出现确认条，运行仍继续；再点独立的“确认暂停”才停止。“继续运行”、Esc 或 8 秒未确认会取消请求。连续点原按钮不算确认。自动期间重连按钮禁用，防止误触中断。</p><p>短暂同步、读取超时、加载、断线或落子前遮挡会等待恢复，保持同一局自动运行。落点已发送但网站暂未反馈时只读等待，不重复点击。换局、回放、身份变化、题目判错、明确其他走法、终局和派发前时间不足等必要情况仍会停止并显示原因。</p>
-<h2>落子确认与连接检查</h2><p>2.6.0 修复“网站未在时限内确认落子，已暂停”的迟反馈误停。落点发送前仍受原本步最多 5 秒的动作截止时间约束；发送后停止动作超时计时，转入独立只读确认，不再受旧版 1.5 秒确认上限或原动作 5 秒截止时间影响。等待期间保留自动和忙碌状态，不启动下一次搜索，不重复发送落点。</p><p>单次 650 ms 读取超时、短暂状态不同步或棋盘暂未加载时继续等待；当前局面或严格匹配的近期局面记录确认预期着法后，才恢复后续流程。一直无法确认时继续等待，可用两步确认暂停中止。换局、回放、身份变化、题目判错、明确其他走法或终局仍会停止；这不能保证所有网站错误都会自动恢复。手动确认暂停、切换对局和开始新局后不会自动开启行棋。</p><p><code>Extension context invalidated.</code> 表示旧面板与已重载的扩展断开。新版会尝试自动恢复原页面上的新面板，棋局不刷新且保持暂停；没有恢复时点击浏览器工具栏的插件按钮。旧面板显示“插件已更新，请重新连接”时，点击其重新连接按钮会刷新棋盘。</p><p>旧版出现 <code>Specified native messaging host not found.</code> 时，重新加载扩展并确认版本 2.6.1，必要时刷新棋盘。新版可自动改用“NNUE 浏览器引擎”。网络完整性或 NNUE 验证失败时会停止并显示原因。</p>
-<p>浏览器独立版不需要启动本地服务。源码开发与旧版本地组件的管理方式见 <a href="CONTRIBUTING.md">开发说明</a>。</p>
-<footer><a href="README.md">完整说明与参数公式</a> · <a href="CHANGELOG.md">逐版更新记录</a> · 版本 2.6.1</footer>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>象棋快手 v2.6.2 · 安装说明</title>
+<style>*{box-sizing:border-box}body{margin:0;background:#f5f7f6;color:#24352b;font:16px/1.8 "Microsoft YaHei",system-ui,sans-serif}main{max-width:780px;margin:36px auto;padding:0 24px 40px}header{display:flex;gap:14px;align-items:center;border-bottom:1px solid #d9e0db;padding-bottom:20px}header img{width:54px;height:54px}h1{margin:0;font-size:27px}header p{margin:0;color:#6b776f}h2{font-size:19px;margin:26px 0 8px}ol{padding-left:24px}li{margin:10px 0}code{font:14px Consolas,monospace;background:#e9eeeb;padding:3px 7px;border-radius:3px;overflow-wrap:anywhere}a{color:#176d4d}table{width:100%;border-collapse:collapse;margin:12px 0}th,td{text-align:left;padding:10px 12px;border-bottom:1px solid #d9e0db}th{color:#637268;font-weight:500}p{margin:10px 0}footer{margin-top:28px;border-top:1px solid #d9e0db;padding-top:16px;font-size:14px}@media(max-width:500px){main{margin-top:20px;padding:0 16px 28px}h1{font-size:23px}th,td{padding:8px 5px}}</style>
+</head>
+<body><main>
+<header><img src="extension/icons/icon128.png" alt="象棋快手图标"><div><h1>象棋快手 v2.6.2</h1><p>Pikafish NNUE · 对局、题库与棋盘分析</p></div></header>
+<h2>安装与更新</h2>
+<ol>
+<li>从 <a href="https://github.com/zhaopengbo-0702/xiangqi-quick-hands/releases/latest">GitHub Releases</a> 下载 <code>xiangqi-quick-hands-v2.6.2.zip</code> 并解压。</li>
+<li>Edge 打开 <code>edge://extensions</code>，Chrome 打开 <code>chrome://extensions</code>，开启“开发人员模式”。</li>
+<li>点击“加载解压缩的扩展”，选择直接包含 <code>manifest.json</code> 的目录。源码安装时选择 <a href="extension/">extension 文件夹</a>，保留安装目录供浏览器加载。</li>
+<li>更新旧版时，用新版文件替换原目录并点击“重新加载”。刷新棋盘，确认面板标题显示 v2.6.2。</li>
+<li>进入自己的对局，等待“引擎就绪”，点击“开始自动”或“走一步”。首次预热需要数秒。</li>
+</ol>
+<p>适用 Chrome / Edge 116 或更新版本。浏览器独立包内含 WASM 引擎、NNUE、对应源码和许可证。</p>
+<h2>运行中调整</h2>
+<p>“搜索模式”“最长计算”和自适应模式下的“决策偏好”可随时调整，新设置从下一步生效。滑条百分比实时更新，松开后保存，刷新后恢复。</p>
+<table><tbody><tr><th>推荐模式</th><td>自适应</td></tr><tr><th>决策偏好</th><td>65%</td></tr><tr><th>最长计算</th><td>3.5 秒</td></tr><tr><th>普通搜索深度</th><td>至少 6 层</td></tr></tbody></table>
+<h2>读懂面板</h2>
+<p>评估以六位小数显示，正值有利、负值不利，零附近为均势。分档依次为均势、稍优或稍劣、明显优势或劣势、大幅优势或劣势、接近胜势或败势。强制杀棋显示“杀棋 N”。</p>
+<p>深度表示向后搜索的单方步数；重要性用于分配本步计算时间；预算是计划搜索时间，耗时包含读取、计算和落子确认。底部线路展示引擎预测的双方后续走法。</p>
+<p>全部转换公式、PCHIP 插值函数、系数和复算示例已用 LaTeX 排版，见 <a href="https://github.com/zhaopengbo-0702/xiangqi-quick-hands/blob/main/docs/evaluation-mapping.md">评估转换与插值函数</a>。</p>
+<h2>题库与分析</h2>
+<p>支持普通题库、练习、挑战与竞速题目；每日残局进入题库页面时使用同一适配。完成、判错或切题后暂停，新题点击“开始自动”。分析、复盘、棋谱、课程和编辑器使用“分析局面”查看引擎建议。详细入口见 <a href="README.md">完整说明</a>。</p>
+<h2>面板大小与位置</h2>
+<p>拖动标题栏移动，双击恢复默认位置和 100% 大小。拖动边缘或四角整体缩放，文字、图标与按钮同步变化；A− / A+ 每次调整 10%。位置和比例自动保存，小屏幕下正文可滚动。</p>
+<h2>操作变化</h2>
+<p>“反侦查辅助（操作变化）”控制选子前后的随机短暂停顿和点击位置变化。主面板可随时切换，设置保存后从下一步生效。</p>
+<h2>后台与暂停</h2>
+<p>自动行棋支持切换标签页、窗口覆盖和最小化。运行期间保持浏览器、棋局页面和网络连接；页面冻结、电脑休眠或浏览器关闭会中断处理，恢复后核对最新局面。</p>
+<p>先点“暂停自动”或右上角暂停图标，再点独立的“确认暂停”。“继续运行”、Esc 或 8 秒未确认会收起确认条。</p>
+<h2>等待落子确认</h2>
+<p>落点发送后，面板显示“等待网站确认落子”，确认后继续。网页反馈延迟、短暂同步或读取超时会继续等待。换局、回放、身份变化、判错和终局会显示具体状态；等待期间也可使用两步操作暂停。</p>
+<h2>连接恢复</h2>
+<p>更新扩展后刷新棋盘，等待新面板就绪。页面提示“插件已更新，请重新连接”时，可点击浏览器工具栏的扩展按钮恢复面板，再重新开启自动行棋。</p>
+<p>开发工具、原生兼容性和旧版组件管理见 <a href="CONTRIBUTING.md">开发说明</a>。源码与网络权重的许可见 <a href="THIRD_PARTY_NOTICES.md">第三方授权与来源</a>。</p>
+<footer><a href="README.md">完整说明</a> · <a href="CHANGELOG.md">逐版更新记录</a> · 版本 2.6.2</footer>
 </main></body></html>

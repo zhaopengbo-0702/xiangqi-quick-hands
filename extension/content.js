@@ -45,12 +45,12 @@
     .hidden{display:none!important}:focus-visible{outline:2px solid #158a60;outline-offset:2px}
   </style><section id="panel" class="panel" aria-label="象棋快手控制台">
   <header id="panel-header" title="拖动标题栏移动；拖动边缘或四角同步放大文字与按钮；双击标题栏恢复默认"><span class="brand">帥</span><strong id="panel-title">象棋快手</strong><button id="quick-stop" class="icon hidden" title="申请暂停（需确认）" aria-label="申请暂停（需确认）">${icon('pause')}</button><button id="reconnect" class="icon" title="重新连接引擎" aria-label="重新连接引擎">${icon('refresh-cw')}</button><button id="collapse" class="icon" title="收起控制台" aria-label="收起控制台">${icon('minus')}</button></header>
-  <div id="pause-request" class="pause-request hidden" role="group" aria-label="暂停确认"><p>确认暂停本局自动行棋？未确认前会继续运行。</p><div><button id="pause-confirm">确认暂停</button><button id="pause-cancel">继续运行</button></div></div>
+  <div id="pause-request" class="pause-request hidden" role="group" aria-label="暂停确认"><p>确认暂停本局自动行棋？</p><div><button id="pause-confirm">确认暂停</button><button id="pause-cancel">继续运行</button></div></div>
   <div id="body"><main><div class="scale-tools"><span>界面大小</span><div><button id="scale-down" class="scale-button" title="缩小文字和按钮" aria-label="缩小文字和按钮">A−</button><output id="scale-label">100%</output><button id="scale-up" class="scale-button" title="放大文字和按钮" aria-label="放大文字和按钮">A+</button></div></div><div class="state"><span class="dot" id="dot"></span><span id="status" role="status" aria-live="polite">等待棋盘</span></div><div class="engine" id="engine-name">Pikafish · 本地引擎</div>
   <label class="settings" title="运行中可更改，从下一步生效">搜索模式<select id="mode" aria-label="搜索模式"><option value="adaptive" selected>自适应</option><option value="fixed">固定时限</option></select></label>
   <label class="settings" id="balance-row" title="运行中可拖动，从下一步生效">决策偏好<input id="balance" type="range" aria-label="决策偏好" min="0" max="1" step="0.05" value="0.65"><output id="balance-label">稳健 65%</output></label>
   <label class="settings" title="运行中可更改，从下一步生效">最长计算<select id="budget" aria-label="最长计算"><option value="800">0.8 秒</option><option value="1800">1.8 秒</option><option value="2800">2.8 秒</option><option value="3500" selected>3.5 秒</option></select></label>
-  <label class="variation" title="可随时开关，下一步生效；增加随机短暂停顿和棋子内部点击位置变化，不保证防检测或防封禁"><input id="vary-operations" type="checkbox" checked>反侦查辅助（操作变化）</label>
+  <label class="variation" title="随机短暂停顿和点击位置变化；可随时切换，从下一步生效"><input id="vary-operations" type="checkbox" checked>反侦查辅助（操作变化）</label>
   <div class="actions"><button id="auto" class="command primary" disabled>${icon('play','开始自动')}</button><button id="single" class="command" disabled>${icon('step-forward','走一步')}</button></div>
   <div class="result"><output id="move" class="move">-</output><span id="side">-</span></div><div class="metrics"><span id="depth">深度 -</span><span id="score">评估 -</span><span id="elapsed">耗时 -</span></div>
   <div id="score-meaning" class="score-meaning">暂无有效评估</div>
@@ -96,7 +96,7 @@
     return Math.sign(value) * result;
   }
   function setEvaluation(score) {
-    const description = '先计算未舍入的 tanh(0.015 × cp)，再用 PCHIP 保单调三次 Hermite 插值；分界为 0.5、0.7、0.9、0.99，保留 6 位小数。按本次搜索开始时的行棋方视角，正值有利、负值不利；这是局势指数，不是胜率。';
+    const description = '评估范围 −1～+1，保留六位小数；正值有利，负值不利。按本次计算的行棋方判断。';
     $('score').title = description;
     if (!score || !Number.isFinite(score.value) || !['cp', 'mate'].includes(score.type)) {
       $('score').textContent = '评估 -';
@@ -516,7 +516,7 @@
             if (stage === 'destination-dispatched' && ticket === generation) {
               clearTimeout(watchdog);
               watchdog = null;
-              status('落子已发送，等待网站确认（不会重复点击）', 'busy');
+              status('等待网站确认落子', 'busy');
             }
           } });
       }
@@ -538,7 +538,7 @@
         'forced-move': '只有一个合法着法', 'only-legal-move': '只有一个合法着法', 'fixed-budget': '固定时间计算',
       };
       $('importance').title = (result.reason || []).map(reason => reasonLabels[reason] || reason).join('、');
-      status(suggestionOnly ? '分析完成（未落子）' : auto ? '已落子，等待对方' : '本步已完成');
+      status(suggestionOnly ? '分析完成' : auto ? '已落子，等待对方' : '本步已完成');
       if (result.timedOut) {
         ready = false;
         void boot();
@@ -598,7 +598,7 @@
             lastPlayed = null;
           }
           if (current.gameKey) observedGameKey = current.gameKey;
-          $('side').textContent = analysisOnly(current) ? '仅分析，不自动落子' : current.mode === 'puzzle' ? (current.puzzleRace ? '题库竞速' : '题库练习') : current.participant === false ? '观战' : (current.playerSide === 'red' ? '我方执红' : '我方执黑');
+          $('side').textContent = analysisOnly(current) ? '棋盘分析' : current.mode === 'puzzle' ? (current.puzzleRace ? '题库竞速' : '题库练习') : current.participant === false ? '观战' : (current.playerSide === 'red' ? '我方执红' : '我方执黑');
           $('plies').textContent = `第 ${current.moveCount} 手`;
           if (auto) {
             if (current.puzzleCompleted) stop('题目已完成，已暂停');
@@ -613,7 +613,7 @@
             else if (current.turn === current.playerSide && current.isMyTurnNow !== false && lastPlayed !== current.boardKey) void moveOnce();
             else status('等待对方行棋');
           }
-          else if (ready && analysisOnly(current) && (recovered || changedBoard)) status('点击“分析局面”查看建议，不自动落子');
+          else if (ready && analysisOnly(current) && (recovered || changedBoard)) status('点击“分析局面”查看建议');
           else if (ready && current.puzzleCompleted) status('题目已完成');
           else if (ready && current.puzzleWrong) status('本题走法未通过，请检查题目');
           else if (ready && current.mode === 'online' && current.participant !== true) status('观战棋盘');

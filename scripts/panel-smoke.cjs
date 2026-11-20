@@ -414,8 +414,7 @@ async function main() {
       if (score.type === 'cp') {
         assert.match(expected, /^评估 [+-]?0\.\d{6}$/);
         assert.notEqual(expected, '评估 ' + (score.value / 100).toFixed(2), 'The old raw score is absent from the evaluation');
-        assert.match(await page.locator('#score').getAttribute('title'), /tanh/);
-        assert.match(await page.locator('#score').getAttribute('title'), /PCHIP/);
+        assert.equal(await page.locator('#score').getAttribute('title'), '评估范围 −1～+1，保留六位小数；正值有利，负值不利。按本次计算的行棋方判断。');
       }
       observations.push({ name: 'normalized-evaluation', engineScore: score, expected, meaning });
     }

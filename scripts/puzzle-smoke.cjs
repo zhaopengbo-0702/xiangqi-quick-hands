@@ -403,7 +403,7 @@ async function main() {
     await page.waitForTimeout(5500);
     const delayedWaiting = await state();
     assert.equal(delayedWaiting.pendingConfirmation, true, 'Confirmation is still delayed beyond five seconds after the destination click');
-    assert.match(delayedWaiting.status, /等待.*确认|确认.*等待/);
+    assert.equal(delayedWaiting.status, '等待网站确认落子');
     assert.match(delayedWaiting.auto, /暂停自动/, 'Delayed website confirmation keeps autoplay active');
     assert.equal(delayedWaiting.singleDisabled, true, 'No second move can start while confirmation is pending');
     assert.equal(delayedWaiting.ownMoves.length, 1);
@@ -429,7 +429,7 @@ async function main() {
     await page.evaluate(() => window.fixtureActions.delayNext(60000));
     const pauseDelayedStart = await worker.evaluate(() => globalThis.puzzleSmokeRequests.length);
     await page.locator('#auto').click();
-    await page.waitForFunction(() => window.puzzleFixture.pendingConfirmation && /等待.*确认|确认.*等待/.test(document.getElementById('xq-quick-hands').shadowRoot.getElementById('status').textContent), null, { timeout: 15000 });
+    await page.waitForFunction(() => window.puzzleFixture.pendingConfirmation && document.getElementById('xq-quick-hands').shadowRoot.getElementById('status').textContent === '等待网站确认落子', null, { timeout: 15000 });
     await page.locator('#auto').click();
     await page.locator('#pause-confirm').waitFor({ state: 'visible' });
     const requestedPause = await state();
@@ -456,9 +456,9 @@ async function main() {
     const analysisBefore = await state();
     assert.match(analysisBefore.single, /分析局面/);
     assert.equal(analysisBefore.autoDisabled, true);
-    assert.match(analysisBefore.side, /仅分析/);
+    assert.equal(analysisBefore.side, '棋盘分析');
     await page.locator('#single').click();
-    await page.waitForFunction(() => /分析完成/.test(document.getElementById('xq-quick-hands').shadowRoot.getElementById('status').textContent), null, { timeout: 15000 });
+    await page.waitForFunction(() => document.getElementById('xq-quick-hands').shadowRoot.getElementById('status').textContent === '分析完成', null, { timeout: 15000 });
     const analysisAfter = await state();
     assert.equal(analysisAfter.inputAttempts, 0);
     assert.equal(analysisAfter.ownMoves.length, 0);

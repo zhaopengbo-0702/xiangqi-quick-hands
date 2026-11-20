@@ -2,7 +2,22 @@
 
 本文件记录已发布版本的用户可见变化、关键修复与验证范围。各版完整发布说明保存在 [`.github/releases`](.github/releases)，下载与校验值见 [GitHub Releases](https://github.com/zhaopengbo-0702/xiangqi-quick-hands/releases)。
 
-当前只分发带版本号的浏览器独立包 `xiangqi-quick-hands-v<版本号>.zip` 和校验文件 `SHA256SUMS.txt`，当前包名为 `xiangqi-quick-hands-v2.6.1.zip`。历史版本曾提供的 Windows 完整包已停止分发；旧版记录中的“双安装包”描述仅反映当时情况。2.3.1 是开发过程中的版本号，未单独发布，相关改动合并到 2.4.0。
+当前提供浏览器独立包 `xiangqi-quick-hands-v2.6.2.zip` 和校验文件 `SHA256SUMS.txt`，各版安装包均标明版本。历史 Windows 完整包已停止分发。2.3.1 的开发改动合并于 2.4.0 发布。
+
+## 2.6.2
+
+### 页面与文案
+
+- 精简评估、等待确认、分析与操作变化提示，整理 GitHub 首页和安装说明。
+- 评估数学文档改用 LaTeX 展示完整转换链、节点斜率、五段 PCHIP 函数、系数表和复算示例。
+- 首页时间分配公式及相关历史版本数学说明同步排版。
+
+### 验证
+
+- 完整回归 226/226、真实浏览器面板 36 项检查通过；扩展语法、清单和引擎完整性检查通过。
+- 数学节点、系数与复算示例核对一致，检查 GitHub 数学排版渲染。
+
+完整说明：[2.6.2](.github/releases/v2.6.2.md)。
 
 ## 2.6.1
 

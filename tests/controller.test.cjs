@@ -936,8 +936,8 @@ test('evaluation presents only the signed six-decimal interpolated index and a p
     assert.equal(app.elements.get('score').textContent, `评估 ${expectedIndex}`);
     assert.equal(app.elements.has('score-raw'), false, 'The panel omits the old score');
     assert.equal(app.elements.get('score-meaning').textContent, meaning);
-    assert.match(app.elements.get('score').title, /tanh/);
-    assert.match(app.elements.get('score').title, /胜率/);
+    assert.match(app.elements.get('score').title, /评估范围 −1～\+1.*六位小数/);
+    assert.match(app.elements.get('score').title, /正值有利，负值不利/);
     assert.equal(app.plays.length, 1, 'Display conversion preserves normal move execution');
   }
 });
@@ -1513,7 +1513,7 @@ test('analysis boards offer an explicit suggestion without enabling autoplay or 
     await app.resolveSearch();
     assert.equal(app.plays.length, 0, pathname);
     assert.equal(app.elements.get('move').textContent, 'b1c3', pathname);
-    assert.match(app.elements.get('status').textContent, /分析完成.*未落子/, pathname);
+    assert.equal(app.elements.get('status').textContent, '分析完成', pathname);
     await app.advance(220);
     assert.equal(app.searches.length, 1, 'analysis is a one-shot request');
     assert.equal(app.calls.filter(call => call.type === 'XQ_BACKGROUND').at(-1).active, false);
