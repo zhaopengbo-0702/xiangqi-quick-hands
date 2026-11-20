@@ -65,26 +65,36 @@ a(1)&=418.76301556,\\
 
 ## 完整转换链
 
-给定有限普通评分 $`\mathrm{cp}`$，依次完成单位换算、解析变换、插值和显示：
+给定有限普通评分 $`\mathrm{cp}`$，依次执行以下四步。
+
+**第一步：单位换算。**
 
 ```math
-\mathrm{cp}
-\xrightarrow{\div100}x
-\xrightarrow{\tanh(1.5x)}u
-\xrightarrow{\mathrm{sgn}(u)P(|u|)}y
-\xrightarrow{\text{钳制、六位舍入}}s.
+x=\frac{\mathrm{cp}}{100}.
 ```
 
-各步定义为：
+**第二步：双曲正切变换。**
+
+```math
+u=\tanh(1.5x)=\tanh(0.015\mathrm{cp}).
+```
+
+**第三步：PCHIP 插值，恢复正负号。**
 
 ```math
 \begin{aligned}
-x&=\frac{\mathrm{cp}}{100},\\
-u&=\tanh(1.5x)=\tanh(0.015\mathrm{cp}),\\
-b&=|u|,\qquad \mathrm{sgn}(0)=0,\\
-y&=\mathrm{sgn}(u)P(b),\\
+b&=\lvert u\rvert,\\
+y&=\mathrm{sgn}(u)P(b),\qquad \mathrm{sgn}(0)=0.
+\end{aligned}
+```
+
+**第四步：限制显示范围，保留六位小数。**
+
+```math
+\begin{aligned}
 \widehat y&=\mathrm{clamp}(y,-0.999999,0.999999),\\
-s&=R_6(\widehat y),\qquad q=|s|.
+s&=R_6(\widehat y),\\
+q&=\lvert s\rvert.
 \end{aligned}
 ```
 

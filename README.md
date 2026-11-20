@@ -68,11 +68,12 @@ s &= \mathrm{round}_{6}\!\left(\mathrm{clip}(y,-0.999999,0.999999)\right).
 负分对称处理。完整的引擎评分来源、节点斜率、五段插值函数与系数见 [数学说明](docs/evaluation-mapping.md)。例如：
 
 ```math
-\mathrm{cp}=22
-\;\longrightarrow\; x=0.22
-\;\longrightarrow\; u=\tanh(0.33)
-\;\longrightarrow\; y\approx0.271333693
-\;\longrightarrow\; s=+0.271334.
+\begin{aligned}
+\mathrm{cp}&=22,\qquad x=0.22,\\
+u&=\tanh(0.33),\\
+y&\approx0.271333693,\\
+s&=+0.271334.
+\end{aligned}
 ```
 令 $`q=\lvert s\rvert`$，按面板显示值分档：
 
