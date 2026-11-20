@@ -56,8 +56,10 @@ async function main() {
       const connect = chrome.runtime.connectNative.bind(chrome.runtime);
       chrome.runtime.connectNative = () => connect('com.xiangqi.quick_hands.deliberately_missing');
       globalThis.puzzleSmokeRequests = [];
+      globalThis.puzzleSmokeCancellations = [];
       chrome.runtime.onMessage.addListener((message, sender) => {
-        if (message.type === 'XQ_ANALYZE' && sender.tab) globalThis.puzzleSmokeRequests.push({ fen: message.fen, moves: message.moves, url: sender.tab.url });
+        if (message.type === 'XQ_ANALYZE' && sender.tab) globalThis.puzzleSmokeRequests.push({ fen: message.fen, moves: message.moves, mode: message.mode, movetime: message.movetime, balance: message.balance, requestId: message.requestId, url: sender.tab.url });
+        if (message.type === 'XQ_CANCEL' && sender.tab) globalThis.puzzleSmokeCancellations.push({ requestId: message.requestId, url: sender.tab.url });
       });
     });
     async function open(route) {
@@ -95,10 +97,20 @@ async function main() {
         throw new Error('Operation variation setting was not saved');
       }, expected);
     }
+    async function savedSearch(mode, movetime) {
+      await worker.evaluate(async expected => {
+        for (let i = 0; i < 40; i++) {
+          const saved = await chrome.storage.local.get(['mode', 'movetime']);
+          if (saved.mode === expected.mode && saved.movetime === expected.movetime) return;
+          await new Promise(resolve => setTimeout(resolve, 25));
+        }
+        throw new Error('Search settings were not saved');
+      }, { mode, movetime });
+    }
     async function state() {
       return page.evaluate(() => {
         const r = document.getElementById('xq-quick-hands').shadowRoot;
-        return { ...window.puzzleFixture, status: r.getElementById('status').textContent, auto: r.getElementById('auto').textContent, autoDisabled: r.getElementById('auto').disabled, singleDisabled: r.getElementById('single').disabled, single: r.getElementById('single').textContent, variationChecked: r.getElementById('vary-operations').checked, variationDisabled: r.getElementById('vary-operations').disabled, side: r.getElementById('side').textContent, move: r.getElementById('move').textContent, depth: r.getElementById('depth').textContent, engine: r.getElementById('engine-name').textContent };
+        return { ...window.puzzleFixture, status: r.getElementById('status').textContent, auto: r.getElementById('auto').textContent, autoDisabled: r.getElementById('auto').disabled, singleDisabled: r.getElementById('single').disabled, single: r.getElementById('single').textContent, searchMode: r.getElementById('mode').value, searchModeDisabled: r.getElementById('mode').disabled, movetime: Number(r.getElementById('budget').value), movetimeDisabled: r.getElementById('budget').disabled, variationChecked: r.getElementById('vary-operations').checked, variationDisabled: r.getElementById('vary-operations').disabled, side: r.getElementById('side').textContent, move: r.getElementById('move').textContent, depth: r.getElementById('depth').textContent, engine: r.getElementById('engine-name').textContent };
       });
     }
     async function waitPaused(pattern) {
@@ -170,6 +182,67 @@ async function main() {
     assert.equal(switched.answerReads, 0);
     cases.push({ route: '/puzzle/123/P', ending: 'switch-puzzle', after: switched });
 
+    await open('/puzzle/123/P');
+    await page.locator('#mode').selectOption('fixed');
+    await page.locator('#budget').selectOption('2800');
+    await savedSearch('fixed', 2800);
+    const liveRequestStart = await worker.evaluate(() => globalThis.puzzleSmokeRequests.length);
+    await page.locator('#auto').click();
+    await page.waitForFunction(() => /正在计算/.test(document.getElementById('xq-quick-hands').shadowRoot.getElementById('status').textContent));
+    const cancellationsBefore = await worker.evaluate(() => globalThis.puzzleSmokeCancellations.length);
+    const computingBefore = await state();
+    assert.equal(computingBefore.searchModeDisabled, false, 'Search mode remains usable while the engine is computing');
+    assert.equal(computingBefore.movetimeDisabled, false, 'Maximum thinking time remains usable while the engine is computing');
+    await page.locator('#mode').selectOption('adaptive');
+    await page.locator('#budget').selectOption('3500');
+    await savedSearch('adaptive', 3500);
+    const computingChanged = await state();
+    assert.match(computingChanged.status, /正在计算/, 'Changing the dropdowns does not interrupt the active search');
+    assert.match(computingChanged.auto, /暂停自动/, 'Changing settings keeps autoplay running');
+    assert.equal(computingChanged.searchMode, 'adaptive');
+    assert.equal(computingChanged.movetime, 3500);
+    await fs.mkdir(results, { recursive: true });
+    await page.screenshot({ path: path.join(results, 'mv3-live-search-settings.png'), fullPage: true });
+    await page.waitForFunction(() => window.puzzleFixture.ownMoves.length === 1 && /等待对方/.test(document.getElementById('xq-quick-hands').shadowRoot.getElementById('status').textContent), null, { timeout: 15000 });
+    const waitingBefore = await state();
+    assert.equal(waitingBefore.searchModeDisabled, false, 'Search mode remains usable while autoplay waits for the opponent');
+    assert.equal(waitingBefore.movetimeDisabled, false, 'Maximum thinking time remains usable while autoplay waits for the opponent');
+    assert.match(waitingBefore.auto, /暂停自动/);
+    const firstLiveRequest = await worker.evaluate(index => globalThis.puzzleSmokeRequests[index], liveRequestStart);
+    assert.equal(firstLiveRequest.mode, 'fixed', 'The in-progress move keeps its original search mode');
+    assert.equal(firstLiveRequest.movetime, 2800, 'The in-progress move keeps its original thinking limit');
+    await page.locator('#mode').selectOption('fixed');
+    await page.locator('#budget').selectOption('1800');
+    await page.locator('#mode').selectOption('adaptive');
+    await savedSearch('adaptive', 1800);
+    const waitingChanged = await state();
+    assert.match(waitingChanged.status, /等待对方/);
+    assert.match(waitingChanged.auto, /暂停自动/, 'Changing settings while waiting does not pause autoplay');
+    assert.equal(waitingChanged.searchMode, 'adaptive');
+    assert.equal(waitingChanged.movetime, 1800);
+    await page.evaluate(() => window.fixtureActions.opponentMove());
+    await page.waitForFunction(() => window.puzzleFixture.ownMoves.length === 2 && /等待对方/.test(document.getElementById('xq-quick-hands').shadowRoot.getElementById('status').textContent), null, { timeout: 15000 });
+    const liveAfter = await state();
+    const liveRequests = await worker.evaluate(index => globalThis.puzzleSmokeRequests.slice(index), liveRequestStart);
+    assert.equal(liveRequests.length, 2, 'Each own turn starts exactly one engine request');
+    assert.deepEqual(liveRequests.map(request => ({ mode: request.mode, movetime: request.movetime })), [{ mode: 'fixed', movetime: 2800 }, { mode: 'adaptive', movetime: 1800 }], 'The next move uses the most recently selected settings');
+    assert.equal(await worker.evaluate(() => globalThis.puzzleSmokeCancellations.length), cancellationsBefore, 'Editing search settings never sends XQ_CANCEL');
+    assert.match(liveAfter.auto, /暂停自动/);
+    assert.equal(liveAfter.inputAttempts, 2);
+    assert.equal(liveAfter.answerReads, 0);
+    await page.reload();
+    await page.locator('#panel').waitFor({ state: 'visible' });
+    await page.waitForFunction(() => {
+      const r = document.getElementById('xq-quick-hands')?.shadowRoot;
+      return r && !r.getElementById('single').disabled;
+    }, null, { timeout: 30000 });
+    const reloaded = await state();
+    assert.equal(reloaded.searchMode, 'adaptive', 'Search mode persists after reload');
+    assert.equal(reloaded.movetime, 1800, 'Maximum thinking time persists after reload');
+    assert.equal(reloaded.searchModeDisabled, false);
+    assert.equal(reloaded.movetimeDisabled, false);
+    cases.push({ route: '/puzzle/123/P', ending: 'live-search-settings', computingBefore, computingChanged, waitingBefore, waitingChanged, after: liveAfter, reloaded, requests: liveRequests, settingsCancellations: 0 });
+
     await open('/analysis/board');
     const analysisBefore = await state();
     assert.match(analysisBefore.single, /分析局面/);
@@ -189,7 +262,7 @@ async function main() {
     assert.deepEqual(errors, []);
     await fs.mkdir(results, { recursive: true });
     await page.screenshot({ path: path.join(results, 'mv3-puzzle-analysis.png'), fullPage: true });
-    const report = { ok: true, manifestVersion: JSON.parse(await fs.readFile(path.join(extension, 'manifest.json'), 'utf8')).version, scenario: 'real MV3 + genuine Pikafish NNUE WASM + local fixtures matching observed puzzle and analysis props; no answer lookup', cases, requests: await worker.evaluate(() => globalThis.puzzleSmokeRequests), pageErrors: errors };
+    const report = { ok: true, manifestVersion: JSON.parse(await fs.readFile(path.join(extension, 'manifest.json'), 'utf8')).version, scenario: 'real MV3 + genuine Pikafish NNUE WASM + local fixtures matching observed puzzle and analysis props; live search settings without pause; no answer lookup', cases, requests: await worker.evaluate(() => globalThis.puzzleSmokeRequests), cancellations: await worker.evaluate(() => globalThis.puzzleSmokeCancellations), pageErrors: errors };
     await fs.writeFile(path.join(results, 'mv3-puzzle-analysis.json'), JSON.stringify(report, null, 2) + '\n');
     console.log(JSON.stringify(report, null, 2));
   } catch (error) {

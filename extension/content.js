@@ -47,9 +47,9 @@
   <header id="panel-header" title="拖动标题栏移动；拖动边缘或四角同步放大文字与按钮；双击标题栏恢复默认"><span class="brand">帥</span><strong>象棋快手</strong><button id="quick-stop" class="icon hidden" title="申请暂停（需确认）" aria-label="申请暂停（需确认）">${icon('pause')}</button><button id="reconnect" class="icon" title="重新连接引擎" aria-label="重新连接引擎">${icon('refresh-cw')}</button><button id="collapse" class="icon" title="收起控制台" aria-label="收起控制台">${icon('minus')}</button></header>
   <div id="pause-request" class="pause-request hidden" role="group" aria-label="暂停确认"><p>确认暂停本局自动行棋？未确认前会继续运行。</p><div><button id="pause-confirm">确认暂停</button><button id="pause-cancel">继续运行</button></div></div>
   <div id="body"><main><div class="scale-tools"><span>界面大小</span><div><button id="scale-down" class="scale-button" title="缩小文字和按钮" aria-label="缩小文字和按钮">A−</button><output id="scale-label">100%</output><button id="scale-up" class="scale-button" title="放大文字和按钮" aria-label="放大文字和按钮">A+</button></div></div><div class="state"><span class="dot" id="dot"></span><span id="status" role="status" aria-live="polite">等待棋盘</span></div><div class="engine" id="engine-name">Pikafish · 本地引擎</div>
-  <label class="settings">搜索模式<select id="mode" aria-label="搜索模式"><option value="adaptive" selected>自适应</option><option value="fixed">固定时限</option></select></label>
+  <label class="settings" title="运行中可更改，从下一步生效">搜索模式<select id="mode" aria-label="搜索模式"><option value="adaptive" selected>自适应</option><option value="fixed">固定时限</option></select></label>
   <label class="settings" id="balance-row">决策偏好<input id="balance" type="range" aria-label="决策偏好" min="0" max="1" step="0.05" value="0.65"><output id="balance-label">稳健 65%</output></label>
-  <label class="settings">最长计算<select id="budget" aria-label="最长计算"><option value="800">0.8 秒</option><option value="1800">1.8 秒</option><option value="2800">2.8 秒</option><option value="3500" selected>3.5 秒</option></select></label>
+  <label class="settings" title="运行中可更改，从下一步生效">最长计算<select id="budget" aria-label="最长计算"><option value="800">0.8 秒</option><option value="1800">1.8 秒</option><option value="2800">2.8 秒</option><option value="3500" selected>3.5 秒</option></select></label>
   <label class="variation" title="可随时开关，下一步生效；增加随机短暂停顿和棋子内部点击位置变化，不保证防检测或防封禁"><input id="vary-operations" type="checkbox" checked>反侦查辅助（操作变化）</label>
   <div class="actions"><button id="auto" class="command primary" disabled>${icon('play','开始自动')}</button><button id="single" class="command" disabled>${icon('step-forward','走一步')}</button></div>
   <div class="result"><output id="move" class="move">-</output><span id="side">-</span></div><div class="metrics"><span id="depth">深度 -</span><span id="score">评估 -</span><span id="elapsed">耗时 -</span></div>
@@ -270,8 +270,8 @@
     $('auto').disabled = destroyed || (!auto && !busy && (!ready || !canPlay(current)));
     $('single').innerHTML = icon('step-forward', analysisOnly(current) ? '分析局面' : '走一步');
     $('single').disabled = !ready || busy || auto || (!analysisOnly(current) && (!canPlay(current) || current.isMyTurnNow === false || current.turn !== current.playerSide));
-    $('budget').disabled = destroyed || busy || auto;
-    $('mode').disabled = destroyed || busy || auto;
+    $('budget').disabled = destroyed;
+    $('mode').disabled = destroyed;
     $('balance').disabled = destroyed || busy || auto;
     $('vary-operations').disabled = destroyed;
     $('reconnect').disabled = booting || auto || busy;
@@ -408,6 +408,7 @@
     const ticket = ++generation;
     const started = performance.now();
     const varyOperations = $('vary-operations').checked;
+    const searchSettings = { mode: $('mode').value, movetime: Number($('budget').value), balance: Number($('balance').value) };
     busy = true;
     updateBackgroundSubscription();
     controls();
@@ -425,7 +426,7 @@
       status('正在计算', 'busy');
       const remaining = Number.isFinite(snapshot.clockRemainingMs) ? snapshot.clockRemainingMs : Infinity;
       const turnLimit = Math.min(5000, remaining - 200);
-      const movetime = Math.min(Number($('budget').value), Math.max(500, remaining - 900));
+      const movetime = Math.min(searchSettings.movetime, Math.max(500, remaining - 900));
       requestId = crypto.randomUUID();
       watchdog = setTimeout(() => {
         if (ticket === generation) stop(remaining < 5200 ? '剩余时间不足，已停止本步' : '本步超过 5 秒，已停止', 'error');
@@ -433,7 +434,7 @@
       const result = await rpc('XQ_ANALYZE', {
         fen: snapshot.fen, movetime,
         ...(Array.isArray(snapshot.moves) ? { initialFen: snapshot.initFen, moves: snapshot.moves } : {}),
-        mode: $('mode').value, balance: Number($('balance').value), requestId,
+        mode: searchSettings.mode, balance: searchSettings.balance, requestId,
       });
       if (ticket !== generation || !onBoard()) return;
       if (performance.now() - started > Math.min(4400, turnLimit - 250)) throw new Error('计算超时，已取消本步');

@@ -44,6 +44,7 @@ async function controller(initial = {}, options = {}) {
   const runtimeFaults = { id: false, getURL: false, sendMessage: false, storage: false };
   const listeners = {};
   const calls = [];
+  const reads = [];
   const searches = [];
   const warmups = [];
   const storageWrites = [];
@@ -51,6 +52,7 @@ async function controller(initial = {}, options = {}) {
   const playAttempts = [];
   const viewport = { innerWidth: options.viewport?.width ?? 1280, innerHeight: options.viewport?.height ?? 800 };
   let readError = options.adapterError || null;
+  let deferRead = false;
   let playError = options.playError || null;
   let state = { fen: START, mode: 'computer', participant: true, playerSide: 'red', turn: 'red', active: true, historyMode: false, gameKey: 'game:original', boardKey: 'game:opening', moveCount: 0, ...initial };
   function eventTarget(target, observedListeners) {
@@ -187,6 +189,12 @@ async function controller(initial = {}, options = {}) {
       async read() {
         readCount++;
         if (readError) throw typeof readError === 'string' ? new Error(readError) : readError;
+        if (deferRead) {
+          deferRead = false;
+          const read = deferred();
+          reads.push({ ...read, snapshot: { ...state } });
+          return read.promise;
+        }
         return { ...state };
       }
       async play(move, snapshot, options) {
@@ -218,9 +226,10 @@ async function controller(initial = {}, options = {}) {
     get elements() { return elements; }, get host() { return host; },
     get readCount() { return readCount; }, get destroyCount() { return destroyCount; },
     get reloadCount() { return reloadCount; },
-    context, document, location, calls, searches, warmups, plays, playAttempts, listeners, advance, storageWrites, hosts, timers, runtimeListeners,
+    context, document, location, calls, reads, searches, warmups, plays, playAttempts, listeners, advance, storageWrites, hosts, timers, runtimeListeners,
     setState: next => { state = { ...state, ...next }; },
     setReadError: error => { readError = error; },
+    deferNextRead: () => { deferRead = true; },
     setPlayError: error => { playError = error; },
     invalidateRuntime: (overrides = {}) => { Object.assign(runtimeFaults, { id: true, getURL: true, sendMessage: true, storage: true }, overrides); },
     restoreRuntime: () => { for (const key of Object.keys(runtimeFaults)) runtimeFaults[key] = false; },
@@ -232,6 +241,7 @@ async function controller(initial = {}, options = {}) {
     },
     async click(id) { const element = elements.get(id); if (!element.disabled) element.onclick(); await flush(); },
     async resolveSearch(index = 0, result = {}) { searches[index].resolve({ ok: true, bestmove: 'b1c3', depth: 12, score: { type: 'cp', value: 20 }, pv: ['b1c3', 'b10c8'], ...result }); await flush(); },
+    async resolveRead(index = 0) { reads[index].resolve(reads[index].snapshot); await flush(); },
     async resolveWarmup(index = 0) { warmups[index].resolve({ ok: true, ready: true }); await flush(); },
   };
 }
@@ -274,6 +284,8 @@ test('idle extension invalidation pauses autoplay and stops every recurring reso
   assert.equal(app.elements.get('auto').classList.contains('running'), false);
   assert.equal(app.elements.get('auto').disabled, true);
   assert.equal(app.elements.get('single').disabled, true);
+  assert.equal(app.elements.get('mode').disabled, true);
+  assert.equal(app.elements.get('budget').disabled, true);
   assert.equal(app.elements.get('reconnect').disabled, false);
   assert.equal(app.elements.get('reconnect').title, '刷新棋盘重新连接');
   assert.equal(app.readCount, readsBeforeInvalidation);
@@ -677,8 +689,116 @@ test('adaptive mode forwards its selected importance balance and upper time limi
   assert.equal(request.mode, 'adaptive');
   assert.equal(request.balance, 0.65);
   assert.equal(request.movetime, 3500);
-  assert.equal(app.elements.get('mode').disabled, true);
+  assert.equal(app.elements.get('mode').disabled, false);
+  assert.equal(app.elements.get('budget').disabled, false);
   assert.equal(app.elements.get('balance').disabled, true);
+});
+
+test('search mode and maximum compute time can change while automatic play waits for the opponent', async () => {
+  const app = await controller({ turn: 'black' });
+  await app.click('auto');
+  assert.equal(app.elements.get('mode').disabled, false);
+  assert.equal(app.elements.get('budget').disabled, false);
+  const statusBeforeChange = app.elements.get('status').textContent;
+  app.elements.get('mode').value = 'fixed';
+  app.elements.get('mode').onchange();
+  app.elements.get('budget').value = '1800';
+  app.elements.get('budget').onchange();
+  assert.equal(app.elements.get('status').textContent, statusBeforeChange);
+  assert.equal(app.elements.get('auto').classList.contains('running'), true);
+  assert.equal(app.elements.get('pause-request').classList.contains('hidden'), true);
+  assert.equal(app.calls.some(call => call.type === 'XQ_CANCEL'), false);
+  app.setState({ turn: 'red', boardKey: 'game:opponent-moved', moveCount: 2 });
+  await app.advance(110);
+  const request = app.calls.find(call => call.type === 'XQ_ANALYZE');
+  assert.equal(request.mode, 'fixed');
+  assert.equal(request.movetime, 1800);
+});
+
+test('live search-setting edits preserve the current calculation, apply next automatic turn, and survive reload', async () => {
+  const app = await controller();
+  await app.click('auto');
+  const firstRequest = app.calls.find(call => call.type === 'XQ_ANALYZE');
+  assert.equal(app.elements.get('mode').disabled, false);
+  assert.equal(app.elements.get('budget').disabled, false);
+  const statusBeforeChange = app.elements.get('status').textContent;
+  app.elements.get('mode').value = 'fixed';
+  app.elements.get('mode').onchange();
+  app.elements.get('budget').value = '800';
+  app.elements.get('budget').onchange();
+  await flush();
+  assert.equal(firstRequest.mode, 'adaptive');
+  assert.equal(firstRequest.movetime, 3500);
+  assert.equal(app.searches.length, 1);
+  assert.equal(app.elements.get('status').textContent, statusBeforeChange);
+  assert.equal(app.elements.get('auto').classList.contains('running'), true);
+  assert.equal(app.elements.get('pause-request').classList.contains('hidden'), true);
+  assert.equal(app.calls.some(call => call.type === 'XQ_CANCEL'), false);
+  await app.resolveSearch();
+  assert.equal(app.plays.length, 1);
+  app.setState({ turn: 'red', boardKey: 'game:next-player-turn', moveCount: 2 });
+  await app.advance(110);
+  const nextRequest = app.calls.filter(call => call.type === 'XQ_ANALYZE')[1];
+  assert.equal(nextRequest.mode, 'fixed');
+  assert.equal(nextRequest.movetime, 800);
+  assert.equal(app.elements.get('auto').classList.contains('running'), true);
+  assert.equal(app.calls.some(call => call.type === 'XQ_CANCEL'), false);
+  const savedSettings = Object.assign({}, ...app.storageWrites);
+  assert.equal(savedSettings.mode, 'fixed');
+  assert.equal(savedSettings.movetime, 800);
+  const restored = await controller({}, { savedSettings });
+  assert.equal(restored.elements.get('mode').value, 'fixed');
+  assert.equal(restored.elements.get('budget').value, '800');
+  await restored.click('single');
+  const restoredRequest = restored.calls.find(call => call.type === 'XQ_ANALYZE');
+  assert.equal(restoredRequest.mode, 'fixed');
+  assert.equal(restoredRequest.movetime, 800);
+});
+
+test('a step captures search settings before its initial asynchronous board read', async () => {
+  const app = await controller();
+  app.deferNextRead();
+  await app.click('auto');
+  assert.equal(app.reads.length, 1);
+  assert.equal(app.searches.length, 0);
+  assert.equal(app.elements.get('mode').disabled, false);
+  assert.equal(app.elements.get('budget').disabled, false);
+  app.elements.get('mode').value = 'fixed';
+  app.elements.get('mode').onchange();
+  app.elements.get('budget').value = '2800';
+  app.elements.get('budget').onchange();
+  await app.resolveRead();
+  const request = app.calls.find(call => call.type === 'XQ_ANALYZE');
+  assert.equal(request.mode, 'adaptive');
+  assert.equal(request.movetime, 3500);
+  assert.equal(request.balance, 0.65);
+  await app.resolveSearch();
+  app.setState({ turn: 'red', boardKey: 'game:next-player-turn', moveCount: 2 });
+  await app.advance(110);
+  const nextRequest = app.calls.filter(call => call.type === 'XQ_ANALYZE')[1];
+  assert.equal(nextRequest.mode, 'fixed');
+  assert.equal(nextRequest.movetime, 2800);
+  assert.equal(app.calls.some(call => call.type === 'XQ_CANCEL'), false);
+});
+
+test('increasing maximum compute time during automatic play still respects the next turn clock reserve', async () => {
+  const app = await controller({ mode: 'online', participant: true, clockRemainingMs: 5000 }, { pathname: '/game/match-123', savedSettings: { movetime: 800 } });
+  await app.click('auto');
+  app.elements.get('mode').value = 'fixed';
+  app.elements.get('mode').onchange();
+  app.elements.get('budget').value = '3500';
+  app.elements.get('budget').onchange();
+  await app.resolveSearch();
+  app.setState({ turn: 'red', boardKey: 'game:next-player-turn', moveCount: 2, clockRemainingMs: 1800 });
+  await app.advance(110);
+  const requests = app.calls.filter(call => call.type === 'XQ_ANALYZE');
+  assert.equal(requests[0].movetime, 800);
+  assert.equal(requests[1].mode, 'fixed');
+  assert.equal(requests[1].movetime, 900);
+  await app.resolveSearch(1);
+  assert.equal(app.plays.length, 2);
+  assert.equal(app.plays[1].options.deadline, 1710);
+  assert.equal(app.calls.some(call => call.type === 'XQ_CANCEL'), false);
 });
 
 test('fixed mode and changed balance propagate from the panel to analysis', async () => {
