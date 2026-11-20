@@ -48,7 +48,7 @@
   <div id="pause-request" class="pause-request hidden" role="group" aria-label="暂停确认"><p>确认暂停本局自动行棋？未确认前会继续运行。</p><div><button id="pause-confirm">确认暂停</button><button id="pause-cancel">继续运行</button></div></div>
   <div id="body"><main><div class="scale-tools"><span>界面大小</span><div><button id="scale-down" class="scale-button" title="缩小文字和按钮" aria-label="缩小文字和按钮">A−</button><output id="scale-label">100%</output><button id="scale-up" class="scale-button" title="放大文字和按钮" aria-label="放大文字和按钮">A+</button></div></div><div class="state"><span class="dot" id="dot"></span><span id="status" role="status" aria-live="polite">等待棋盘</span></div><div class="engine" id="engine-name">Pikafish · 本地引擎</div>
   <label class="settings" title="运行中可更改，从下一步生效">搜索模式<select id="mode" aria-label="搜索模式"><option value="adaptive" selected>自适应</option><option value="fixed">固定时限</option></select></label>
-  <label class="settings" id="balance-row">决策偏好<input id="balance" type="range" aria-label="决策偏好" min="0" max="1" step="0.05" value="0.65"><output id="balance-label">稳健 65%</output></label>
+  <label class="settings" id="balance-row" title="运行中可拖动，从下一步生效">决策偏好<input id="balance" type="range" aria-label="决策偏好" min="0" max="1" step="0.05" value="0.65"><output id="balance-label">稳健 65%</output></label>
   <label class="settings" title="运行中可更改，从下一步生效">最长计算<select id="budget" aria-label="最长计算"><option value="800">0.8 秒</option><option value="1800">1.8 秒</option><option value="2800">2.8 秒</option><option value="3500" selected>3.5 秒</option></select></label>
   <label class="variation" title="可随时开关，下一步生效；增加随机短暂停顿和棋子内部点击位置变化，不保证防检测或防封禁"><input id="vary-operations" type="checkbox" checked>反侦查辅助（操作变化）</label>
   <div class="actions"><button id="auto" class="command primary" disabled>${icon('play','开始自动')}</button><button id="single" class="command" disabled>${icon('step-forward','走一步')}</button></div>
@@ -273,7 +273,7 @@
     $('single').disabled = !ready || busy || auto || (!analysisOnly(current) && (!canPlay(current) || current.isMyTurnNow === false || current.turn !== current.playerSide));
     $('budget').disabled = destroyed;
     $('mode').disabled = destroyed;
-    $('balance').disabled = destroyed || busy || auto;
+    $('balance').disabled = destroyed;
     $('vary-operations').disabled = destroyed;
     $('reconnect').disabled = booting || auto || busy;
     $('quick-stop').classList.toggle('hidden', !auto && !busy);

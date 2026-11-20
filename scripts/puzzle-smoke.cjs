@@ -107,10 +107,38 @@ async function main() {
         throw new Error('Search settings were not saved');
       }, { mode, movetime });
     }
+    async function savedBalance(expected) {
+      await worker.evaluate(async expected => {
+        for (let i = 0; i < 40; i++) {
+          if ((await chrome.storage.local.get('balance')).balance === expected) return;
+          await new Promise(resolve => setTimeout(resolve, 25));
+        }
+        throw new Error('Decision preference was not saved');
+      }, expected);
+    }
+    async function dragBalance(target) {
+      const slider = page.locator('#balance');
+      assert.equal(await slider.isEnabled(), true, 'The decision preference slider accepts real mouse input');
+      const box = await slider.boundingBox();
+      assert.ok(box && box.width > 30 && box.height > 0, 'The slider is visible before dragging');
+      const initial = Number(await slider.inputValue());
+      const thumbInset = 8;
+      const x = value => box.x + thumbInset + value * (box.width - thumbInset * 2);
+      const y = box.y + box.height / 2;
+      await page.mouse.move(x(initial), y);
+      await page.mouse.down();
+      await page.mouse.move(x(target), y, { steps: 8 });
+      const dragging = await state();
+      assert.equal(dragging.balance, target, 'Real mouse dragging changes the slider value');
+      assert.equal(dragging.balanceLabel, `${target >= .5 ? '稳健' : '速度'} ${Math.round(target * 100)}%`, 'The percentage updates before the mouse is released');
+      await page.mouse.up();
+      await savedBalance(target);
+      return dragging;
+    }
     async function state() {
       return page.evaluate(() => {
         const r = document.getElementById('xq-quick-hands').shadowRoot;
-        return { ...window.puzzleFixture, status: r.getElementById('status').textContent, auto: r.getElementById('auto').textContent, autoDisabled: r.getElementById('auto').disabled, singleDisabled: r.getElementById('single').disabled, single: r.getElementById('single').textContent, searchMode: r.getElementById('mode').value, searchModeDisabled: r.getElementById('mode').disabled, movetime: Number(r.getElementById('budget').value), movetimeDisabled: r.getElementById('budget').disabled, variationChecked: r.getElementById('vary-operations').checked, variationDisabled: r.getElementById('vary-operations').disabled, side: r.getElementById('side').textContent, move: r.getElementById('move').textContent, depth: r.getElementById('depth').textContent, engine: r.getElementById('engine-name').textContent };
+        return { ...window.puzzleFixture, status: r.getElementById('status').textContent, auto: r.getElementById('auto').textContent, autoDisabled: r.getElementById('auto').disabled, singleDisabled: r.getElementById('single').disabled, single: r.getElementById('single').textContent, searchMode: r.getElementById('mode').value, searchModeDisabled: r.getElementById('mode').disabled, movetime: Number(r.getElementById('budget').value), movetimeDisabled: r.getElementById('budget').disabled, balance: Number(r.getElementById('balance').value), balanceLabel: r.getElementById('balance-label').textContent, balanceDisabled: r.getElementById('balance').disabled, balanceVisible: !r.getElementById('balance-row').classList.contains('hidden'), variationChecked: r.getElementById('vary-operations').checked, variationDisabled: r.getElementById('vary-operations').disabled, side: r.getElementById('side').textContent, move: r.getElementById('move').textContent, depth: r.getElementById('depth').textContent, engine: r.getElementById('engine-name').textContent };
       });
     }
     async function waitPaused(pattern) {
@@ -183,9 +211,9 @@ async function main() {
     cases.push({ route: '/puzzle/123/P', ending: 'switch-puzzle', after: switched });
 
     await open('/puzzle/123/P');
-    await page.locator('#mode').selectOption('fixed');
-    await page.locator('#budget').selectOption('2800');
-    await savedSearch('fixed', 2800);
+    await page.locator('#mode').selectOption('adaptive');
+    await page.locator('#budget').selectOption('3500');
+    await savedSearch('adaptive', 3500);
     const liveRequestStart = await worker.evaluate(() => globalThis.puzzleSmokeRequests.length);
     await page.locator('#auto').click();
     await page.waitForFunction(() => /正在计算/.test(document.getElementById('xq-quick-hands').shadowRoot.getElementById('status').textContent));
@@ -193,39 +221,52 @@ async function main() {
     const computingBefore = await state();
     assert.equal(computingBefore.searchModeDisabled, false, 'Search mode remains usable while the engine is computing');
     assert.equal(computingBefore.movetimeDisabled, false, 'Maximum thinking time remains usable while the engine is computing');
-    await page.locator('#mode').selectOption('adaptive');
-    await page.locator('#budget').selectOption('3500');
-    await savedSearch('adaptive', 3500);
+    assert.equal(computingBefore.balanceDisabled, false, 'Decision preference remains usable while the engine is computing');
+    assert.equal(computingBefore.balance, .65);
+    const computingDragged = await dragBalance(.25);
+    assert.match(computingDragged.status, /正在计算/, 'The preference percentage changes during the active engine search');
+    assert.match(computingDragged.auto, /暂停自动/, 'Dragging the preference does not pause autoplay');
+    await fs.mkdir(results, { recursive: true });
+    await page.screenshot({ path: path.join(results, 'mv3-live-decision-preference.png'), fullPage: true });
+    await page.locator('#mode').selectOption('fixed');
+    await page.locator('#budget').selectOption('2800');
+    await savedSearch('fixed', 2800);
     const computingChanged = await state();
     assert.match(computingChanged.status, /正在计算/, 'Changing the dropdowns does not interrupt the active search');
     assert.match(computingChanged.auto, /暂停自动/, 'Changing settings keeps autoplay running');
-    assert.equal(computingChanged.searchMode, 'adaptive');
-    assert.equal(computingChanged.movetime, 3500);
+    assert.equal(computingChanged.searchMode, 'fixed');
+    assert.equal(computingChanged.movetime, 2800);
+    assert.equal(computingChanged.balance, .25);
     await fs.mkdir(results, { recursive: true });
     await page.screenshot({ path: path.join(results, 'mv3-live-search-settings.png'), fullPage: true });
     await page.waitForFunction(() => window.puzzleFixture.ownMoves.length === 1 && /等待对方/.test(document.getElementById('xq-quick-hands').shadowRoot.getElementById('status').textContent), null, { timeout: 15000 });
     const waitingBefore = await state();
     assert.equal(waitingBefore.searchModeDisabled, false, 'Search mode remains usable while autoplay waits for the opponent');
     assert.equal(waitingBefore.movetimeDisabled, false, 'Maximum thinking time remains usable while autoplay waits for the opponent');
+    assert.equal(waitingBefore.balanceDisabled, false, 'Decision preference remains enabled while autoplay waits for the opponent');
     assert.match(waitingBefore.auto, /暂停自动/);
     const firstLiveRequest = await worker.evaluate(index => globalThis.puzzleSmokeRequests[index], liveRequestStart);
-    assert.equal(firstLiveRequest.mode, 'fixed', 'The in-progress move keeps its original search mode');
-    assert.equal(firstLiveRequest.movetime, 2800, 'The in-progress move keeps its original thinking limit');
-    await page.locator('#mode').selectOption('fixed');
-    await page.locator('#budget').selectOption('1800');
+    assert.equal(firstLiveRequest.mode, 'adaptive', 'The in-progress move keeps its original search mode');
+    assert.equal(firstLiveRequest.movetime, 3500, 'The in-progress move keeps its original thinking limit');
+    assert.equal(firstLiveRequest.balance, .65, 'The in-progress move keeps the preference captured before dragging');
     await page.locator('#mode').selectOption('adaptive');
+    await page.locator('#budget').selectOption('1800');
+    const waitingDragged = await dragBalance(.8);
+    assert.match(waitingDragged.status, /等待对方/, 'The preference can also be dragged while waiting for the opponent');
     await savedSearch('adaptive', 1800);
     const waitingChanged = await state();
     assert.match(waitingChanged.status, /等待对方/);
     assert.match(waitingChanged.auto, /暂停自动/, 'Changing settings while waiting does not pause autoplay');
     assert.equal(waitingChanged.searchMode, 'adaptive');
     assert.equal(waitingChanged.movetime, 1800);
+    assert.equal(waitingChanged.balance, .8);
+    assert.equal(waitingChanged.balanceLabel, '稳健 80%');
     await page.evaluate(() => window.fixtureActions.opponentMove());
     await page.waitForFunction(() => window.puzzleFixture.ownMoves.length === 2 && /等待对方/.test(document.getElementById('xq-quick-hands').shadowRoot.getElementById('status').textContent), null, { timeout: 15000 });
     const liveAfter = await state();
     const liveRequests = await worker.evaluate(index => globalThis.puzzleSmokeRequests.slice(index), liveRequestStart);
     assert.equal(liveRequests.length, 2, 'Each own turn starts exactly one engine request');
-    assert.deepEqual(liveRequests.map(request => ({ mode: request.mode, movetime: request.movetime })), [{ mode: 'fixed', movetime: 2800 }, { mode: 'adaptive', movetime: 1800 }], 'The next move uses the most recently selected settings');
+    assert.deepEqual(liveRequests.map(request => ({ mode: request.mode, movetime: request.movetime, balance: request.balance })), [{ mode: 'adaptive', movetime: 3500, balance: .65 }, { mode: 'adaptive', movetime: 1800, balance: .8 }], 'The current move retains its captured settings and the next move uses the most recently selected preference and limit');
     assert.equal(await worker.evaluate(() => globalThis.puzzleSmokeCancellations.length), cancellationsBefore, 'Editing search settings never sends XQ_CANCEL');
     assert.match(liveAfter.auto, /暂停自动/);
     assert.equal(liveAfter.inputAttempts, 2);
@@ -241,7 +282,11 @@ async function main() {
     assert.equal(reloaded.movetime, 1800, 'Maximum thinking time persists after reload');
     assert.equal(reloaded.searchModeDisabled, false);
     assert.equal(reloaded.movetimeDisabled, false);
-    cases.push({ route: '/puzzle/123/P', ending: 'live-search-settings', computingBefore, computingChanged, waitingBefore, waitingChanged, after: liveAfter, reloaded, requests: liveRequests, settingsCancellations: 0 });
+    assert.equal(reloaded.balance, .8, 'Decision preference persists after reload');
+    assert.equal(reloaded.balanceLabel, '稳健 80%', 'The restored preference percentage matches the saved value');
+    assert.equal(reloaded.balanceDisabled, false);
+    assert.equal(reloaded.balanceVisible, true);
+    cases.push({ route: '/puzzle/123/P', ending: 'live-search-settings', computingBefore, computingDragged, computingChanged, waitingBefore, waitingDragged, waitingChanged, after: liveAfter, reloaded, requests: liveRequests, settingsCancellations: 0 });
 
     await open('/analysis/board');
     const analysisBefore = await state();
@@ -268,8 +313,18 @@ async function main() {
   } catch (error) {
     await fs.mkdir(results, { recursive: true });
     await page?.screenshot({ path: path.join(results, 'mv3-puzzle-analysis-failed.png'), fullPage: true }).catch(() => {});
-    console.error('FIXTURE', await page?.evaluate(() => ({ fixture: window.puzzleFixture, status: document.getElementById('xq-quick-hands')?.shadowRoot?.getElementById('status').textContent })).catch(() => null));
-    await fs.writeFile(path.join(results, 'mv3-puzzle-analysis-failed.json'), JSON.stringify({ ok: false, cases, pageErrors: errors, error: error.stack || String(error) }, null, 2) + '\n');
+    const failureState = await page?.evaluate(() => {
+      const r = document.getElementById('xq-quick-hands')?.shadowRoot;
+      return { fixture: window.puzzleFixture, status: r?.getElementById('status').textContent,
+        auto: r?.getElementById('auto').textContent, mode: r?.getElementById('mode').value,
+        movetime: r?.getElementById('budget').value, balance: r?.getElementById('balance').value,
+        visibility: document.visibilityState, focused: document.hasFocus() };
+    }).catch(() => null);
+    const failureBackground = await worker?.evaluate(() => ({ requests: globalThis.puzzleSmokeRequests,
+      cancellations: globalThis.puzzleSmokeCancellations, owner, engineBackend: typeof engineBackend === 'undefined' ? null : engineBackend,
+      backgroundTabs: [...backgroundTabs.keys()] })).catch(error => ({ unavailable: error.message }));
+    console.error('FIXTURE', failureState, 'BACKGROUND', failureBackground);
+    await fs.writeFile(path.join(results, 'mv3-puzzle-analysis-failed.json'), JSON.stringify({ ok: false, cases, failureState, failureBackground, pageErrors: errors, error: error.stack || String(error) }, null, 2) + '\n');
     throw error;
   } finally {
     await context?.close();
