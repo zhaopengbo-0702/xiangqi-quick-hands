@@ -77,6 +77,10 @@ s&=+0.271334.
 ```
 令 $`q=\lvert s\rvert`$，按面板显示值分档：
 
+![Evaluation magnitude q versus engine score cp](docs/assets/evaluation-q-vs-cp.png)
+
+上图由 Python / Matplotlib 绘制，展示 $`\mathrm{cp}\ge0`$ 时 $`q`$ 与原始评分的关系，标出四个分界点。完整的 $`q(\mathrm{cp})`$ 分段解析式及每段系数见 [函数曲线与直接解析式](docs/evaluation-curve.md)。[PNG](docs/assets/evaluation-q-vs-cp.png) · [SVG](docs/assets/evaluation-q-vs-cp.svg) · [PDF](docs/assets/evaluation-q-vs-cp.pdf) · [数据 CSV](docs/assets/evaluation-q-vs-cp.csv) · [绘图脚本](scripts/plot_evaluation_curve.py)
+
 | 显示绝对值 $`q`$ | 正分 / 负分分档 |
 | --- | --- |
 | $`q<0.5`$ | 均势 |
