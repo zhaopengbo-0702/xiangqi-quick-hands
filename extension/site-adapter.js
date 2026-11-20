@@ -28,6 +28,19 @@
 
   function positionKey(fen) { return normalizeFen(fen).split(" ").slice(0, 2).join(" "); }
 
+  function randomBetween(minimum, maximum, random = Math.random) {
+    const sample = random();
+    const fraction = Number.isFinite(sample) ? Math.min(1, Math.max(0, sample)) : 0.5;
+    return minimum + (maximum - minimum) * fraction;
+  }
+
+  function operationPattern(random = Math.random) {
+    return {
+      beforeSelectionMs: Math.round(randomBetween(80, 220, random)),
+      afterSelectionMs: Math.round(randomBetween(60, 150, random)),
+    };
+  }
+
   function routeMode(pathname) {
     if (pathname === "/computer-play") return "computer";
     if (pathname === "/play" || /^\/game\/[^/]+\/?$/.test(pathname)) return "online";
@@ -146,6 +159,7 @@
       this.window = options.window || window;
       this.document = options.document || document;
       this.delay = options.delay || (milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)));
+      this.random = options.random || Math.random;
       this.requestId = 0;
       this.pending = new Map();
       this.nonce = Array.from(this.window.crypto.getRandomValues(new Uint8Array(16)), (value) => value.toString(16).padStart(2, "0")).join("");
@@ -201,14 +215,16 @@
       return Array.from(this.document.querySelectorAll("#game-grid .square")).find((element) => element.classList.contains(`${cell.rank}-${cell.file}`));
     }
 
-    clickTarget(element) {
+    clickTarget(element, vary = false) {
       if (!element) throw new Error("无法定位落子位置");
       const rect = element.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) throw new Error("落子位置不可见");
-      const hit = this.document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      const clientX = rect.left + rect.width * (vary ? randomBetween(0.42, 0.58, this.random) : 0.5);
+      const clientY = rect.top + rect.height * (vary ? randomBetween(0.42, 0.58, this.random) : 0.5);
+      const hit = this.document.elementFromPoint(clientX, clientY);
       const board = this.document.querySelector("#game-grid");
       if (!hit || !board?.contains(hit)) throw new Error("棋盘被弹窗遮挡");
-      const init = { bubbles: true, cancelable: true, view: this.window, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2, button: 0 };
+      const init = { bubbles: true, cancelable: true, view: this.window, clientX, clientY, button: 0 };
       for (const type of ["mousedown", "mouseup", "click"]) {
         element.dispatchEvent(new this.window.MouseEvent(type, { ...init, buttons: type === "mousedown" ? 1 : 0 }));
       }
@@ -223,8 +239,17 @@
       const move = parseMove(bestmove);
       const initial = await this.read(options);
       checkAction();
-      const board = this.assertReady(initial, expected);
+      let board = this.assertReady(initial, expected);
       const predicted = applyPlacement(initial.fen, bestmove);
+      const pattern = options.varyOperations === true ? operationPattern(this.random) : null;
+      if (pattern) {
+        await this.operationPause(pattern.beforeSelectionMs, options);
+        checkAction();
+        // A pause must not allow a stale position to reach the first click.
+        const fresh = await this.read(options);
+        checkAction();
+        board = this.assertReady(fresh, initial);
+      }
       const sourceCell = this.squareElement(move.from, initial);
       if (!sourceCell) throw new Error("无法定位起点");
       const sourceRect = sourceCell.getBoundingClientRect();
@@ -234,8 +259,9 @@
       })?.querySelector(".piece");
       if (!source) throw new Error("无法定位待走棋子");
       checkAction();
-      if (!source.classList.contains("selected-piece")) this.clickTarget(source);
-      await this.wait(30);
+      if (!source.classList.contains("selected-piece")) this.clickTarget(source, Boolean(pattern));
+      if (pattern) await this.operationPause(pattern.afterSelectionMs, options);
+      else await this.wait(30);
       checkAction();
       const beforeDestination = await this.read(options);
       checkAction();
@@ -244,7 +270,7 @@
       const destination = this.squareElement(move.to, beforeDestination);
       const target = destination && Array.from(destination.children).find((element) => !element.classList.contains("top-indicator") && !element.classList.contains("column-index"));
       checkAction();
-      this.clickTarget(target);
+      this.clickTarget(target, Boolean(pattern));
       const confirmationDeadline = Math.min(this.window.performance.now() + 1500,
         Number.isFinite(options.deadline) ? options.deadline : Infinity);
       // Wait for the original click only; never replay an uncertain destination.
@@ -270,7 +296,13 @@
     wait(milliseconds) {
       return this.delay ? this.delay(milliseconds) : new Promise(resolve => setTimeout(resolve, milliseconds));
     }
+    operationPause(milliseconds, options) {
+      // Keep time for checking the board and confirming the one destination click.
+      const remaining = Number.isFinite(options.deadline) ? Math.max(0, options.deadline - this.window.performance.now() - 350) : milliseconds;
+      const delay = Math.min(milliseconds, remaining);
+      return delay > 0 ? this.wait(delay) : Promise.resolve();
+    }
   }
 
-  return { XiangqiSiteAdapter, normalizeFen, positionKey, routeMode, parseMove, displayCell, boardArray, applyPlacement, normalizeSnapshot };
+  return { XiangqiSiteAdapter, normalizeFen, positionKey, routeMode, parseMove, displayCell, boardArray, applyPlacement, normalizeSnapshot, operationPattern };
 }));

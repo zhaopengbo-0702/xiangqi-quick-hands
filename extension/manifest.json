@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "象棋快手 · 自适应对弈",
-  "version": "2.2.1",
+  "version": "2.3.0",
   "minimum_chrome_version": "116",
-  "description": "适配 Xiangqi.com 人机、在线、题库及分析棋盘，支持可缩放面板和后台运行，使用本地 Pikafish NNUE。",
+  "description": "适配 Xiangqi.com 人机、在线、题库及分析棋盘，支持同步字号缩放、操作变化和后台运行，使用本地 Pikafish NNUE。",
   "permissions": ["storage", "offscreen", "nativeMessaging", "scripting"],
   "host_permissions": ["https://play.xiangqi.com/*"],
   "background": {"service_worker": "background.js", "type": "module"},

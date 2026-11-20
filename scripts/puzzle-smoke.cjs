@@ -19,13 +19,15 @@ let game={puzzle:{puzzle_id:123,initial_fen:INITIAL},movesHistory:[{initMove:tru
 let answerReads=0;
 for(const key of ['answerTree','model_answer'])Object.defineProperty(game.puzzle,key,{get(){answerReads++;throw new Error('Puzzle answers must never be read')}});
 const board=document.getElementById('game-grid');
+const pointerInputs=[];
+for(const type of ['mousedown','mouseup','click'])board.addEventListener(type,event=>{const rect=event.target.getBoundingClientRect();pointerInputs.push({type,clientX:event.clientX,clientY:event.clientY,left:rect.left,top:rect.top,width:rect.width,height:rect.height,isTrusted:event.isTrusted})},true);
 const pieces=document.createElement('div');pieces.className='pieces-container';
 const rootState={current:null};const root={tag:3,stateNode:rootState,return:null};
 const gameFiber={memoizedProps:game,return:root};const provider={memoizedProps:{value:boardContext},return:gameFiber};const host={memoizedProps:{id:'game-grid'},return:provider};
 root.child=gameFiber;gameFiber.child=provider;provider.child=host;rootState.current=root;board.__reactFiber$puzzleFixture=host;
 let selected=null;let ownMoves=[];let inputAttempts=0;let completeOnMove=false;let wrongOnMove=false;let halfmove=0;let fullmove=1;
 let cells=INITIAL.split(' ')[0].split('/').map(row=>[...row].flatMap(piece=>/\\d/.test(piece)?Array(Number(piece)).fill(null):[piece]));
-function publish(){window.puzzleFixture={fen:boardContext.fen,moveCount:game.moveCount,ownMoves:[...ownMoves],inputAttempts,answerReads,completed:game.isPuzzleCompleted,wrong:Boolean(game.wrongMove),id:game.puzzle.puzzle_id,route:location.pathname};document.getElementById('fixture-state').textContent=JSON.stringify(window.puzzleFixture)}
+function publish(){window.puzzleFixture={fen:boardContext.fen,moveCount:game.moveCount,ownMoves:[...ownMoves],inputAttempts,answerReads,pointerInputs:[...pointerInputs],completed:game.isPuzzleCompleted,wrong:Boolean(game.wrongMove),id:game.puzzle.puzzle_id,route:location.pathname};document.getElementById('fixture-state').textContent=JSON.stringify(window.puzzleFixture)}
 function sync(){provider.memoizedProps={value:boardContext};gameFiber.memoizedProps=game;publish()}
 function placement(){return cells.map(row=>{let text='',empty=0;for(const p of row){if(!p)empty++;else{if(empty)text+=empty;empty=0;text+=p}}if(empty)text+=empty;return text}).join('/')}
 function render(){pieces.replaceChildren();cells.forEach((row,r)=>row.forEach((piece,c)=>{if(!piece)return;const holder=document.createElement('div');holder.style.left=c*50+'px';holder.style.top=r*50+'px';const token=document.createElement('div');token.className='piece';token.textContent=piece;token.addEventListener('click',event=>{event.stopPropagation();pieces.querySelectorAll('.piece').forEach(p=>p.classList.remove('selected-piece'));token.classList.add('selected-piece');selected={r,c}});holder.append(token);pieces.append(holder)}))}
@@ -69,7 +71,7 @@ async function main() {
     async function state() {
       return page.evaluate(() => {
         const r = document.getElementById('xq-quick-hands').shadowRoot;
-        return { ...window.puzzleFixture, status: r.getElementById('status').textContent, auto: r.getElementById('auto').textContent, autoDisabled: r.getElementById('auto').disabled, singleDisabled: r.getElementById('single').disabled, single: r.getElementById('single').textContent, side: r.getElementById('side').textContent, move: r.getElementById('move').textContent, depth: r.getElementById('depth').textContent, engine: r.getElementById('engine-name').textContent };
+        return { ...window.puzzleFixture, status: r.getElementById('status').textContent, auto: r.getElementById('auto').textContent, autoDisabled: r.getElementById('auto').disabled, singleDisabled: r.getElementById('single').disabled, single: r.getElementById('single').textContent, variationChecked: r.getElementById('vary-operations').checked, variationDisabled: r.getElementById('vary-operations').disabled, side: r.getElementById('side').textContent, move: r.getElementById('move').textContent, depth: r.getElementById('depth').textContent, engine: r.getElementById('engine-name').textContent };
       });
     }
     async function waitPaused(pattern) {
@@ -84,10 +86,13 @@ async function main() {
       const before = await state();
       assert.match(before.side, ending === 'race' ? /题库竞速/ : /题库练习/);
       assert.equal(before.autoDisabled, false);
+      assert.equal(before.variationChecked, true, 'Variation defaults on for each puzzle route');
+      assert.equal(before.variationDisabled, false);
       assert.match(before.engine, /Pikafish.*NNUE/);
       if (ending === 'complete') await page.evaluate(() => window.fixtureActions.completeNext());
       if (ending === 'wrong') await page.evaluate(() => window.fixtureActions.wrongNext());
       await page.locator('#auto').click();
+      assert.equal((await state()).variationDisabled, true, 'Variation settings cannot change during an active operation');
       if (ending === 'complete') await waitPaused('题目已完成');
       if (ending === 'wrong') await waitPaused('走法未通过');
       if (ending === 'race') {
@@ -100,6 +105,18 @@ async function main() {
       assert.equal(after.ownMoves.length, 1);
       assert.equal(after.singleDisabled, true);
       assert.equal(after.answerReads, 0);
+      assert.equal(after.variationDisabled, false, 'Variation settings become available after automatic pause');
+      assert.equal(after.pointerInputs.length, 6, 'Each move emits exactly one source and one destination event sequence');
+      for (let i = 0; i < after.pointerInputs.length; i += 3) {
+        const sequence = after.pointerInputs.slice(i, i + 3);
+        assert.deepEqual(sequence.map(event => event.type), ['mousedown', 'mouseup', 'click']);
+        assert.equal(new Set(sequence.map(event => event.clientX + ',' + event.clientY)).size, 1, 'One click keeps consistent event coordinates');
+        for (const event of sequence) {
+          assert.ok(event.clientX >= event.left + event.width * .42 - 1 && event.clientX <= event.left + event.width * .58 + 1, 'Actual X stays within the target central region');
+          assert.ok(event.clientY >= event.top + event.height * .42 - 1 && event.clientY <= event.top + event.height * .58 + 1, 'Actual Y stays within the target central region');
+          assert.equal(event.isTrusted, false, 'The extension does not turn synthetic inputs into trusted browser inputs');
+        }
+      }
       if (ending !== 'wrong') assert.ok(Number(after.depth.match(/\d+/)?.[0]) >= 6);
       cases.push({ route, ending, before, after });
     }

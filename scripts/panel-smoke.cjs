@@ -109,6 +109,33 @@ async function main() {
     }
     async function screenshot(name) { await panel.screenshot({ path: path.join(results, name + '.png') }); }
 
+    await page.waitForFunction(() => {
+      const root = document.getElementById('xq-quick-hands')?.shadowRoot;
+      return root?.getElementById('vary-operations')?.checked === true;
+    });
+    assert.equal(await page.locator('#vary-operations').isChecked(), true, 'Operation variation is enabled by default');
+    await page.locator('#vary-operations').uncheck();
+    await worker.evaluate(async () => {
+      for (let i = 0; i < 40; i++) {
+        if ((await chrome.storage.local.get('varyOperations')).varyOperations === false) return;
+        await new Promise(resolve => setTimeout(resolve, 25));
+      }
+      throw new Error('Disabling operation variation was not saved');
+    });
+    await page.reload(); await panel.waitFor({ state: 'visible' });
+    await page.waitForFunction(() => document.getElementById('xq-quick-hands').shadowRoot.getElementById('vary-operations').checked === false);
+    await page.locator('#vary-operations').check();
+    await worker.evaluate(async () => {
+      for (let i = 0; i < 40; i++) {
+        if ((await chrome.storage.local.get('varyOperations')).varyOperations === true) return;
+        await new Promise(resolve => setTimeout(resolve, 25));
+      }
+      throw new Error('Enabling operation variation was not saved');
+    });
+    await page.reload(); await panel.waitFor({ state: 'visible' });
+    await page.waitForFunction(() => document.getElementById('xq-quick-hands').shadowRoot.getElementById('vary-operations').checked === true);
+    checks.push('operation-variation-default-and-off-on-refresh-memory');
+
     await seed();
     const normal = await compact();
     assert.ok(normal.statusFont >= 16, 'Default main text is at least 16 CSS pixels');

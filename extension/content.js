@@ -30,6 +30,7 @@
     strong{font-size:17px;font-weight:700;flex:1;min-width:0;white-space:nowrap}.icon{width:30px;height:30px;flex:none;display:grid;place-items:center;border:0;background:transparent;border-radius:4px}
     .scale-tools{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;color:#485d51;font-size:14px}
     .scale-tools div{display:flex;align-items:center;gap:6px}.scale-button{min-width:34px;min-height:30px;padding:2px 7px;border:1px solid #bdccc3;border-radius:4px;background:#f6f8f7;color:#243c2e;font-weight:700}.scale-tools output{min-width:42px;text-align:center;font-variant-numeric:tabular-nums}
+    .variation{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;color:#485d51;margin-bottom:12px}.variation input{width:17px;height:17px;accent-color:#176d4d;margin:0}
     .icon:hover{background:#e6eeea}img{display:inline-block;flex:none}main{padding:12px} .state{display:flex;align-items:center;gap:7px;min-height:24px}
     .dot{width:7px;height:7px;flex:none;border-radius:50%;background:#8a9690}.dot[data-kind=ready]{background:#19845d}.dot[data-kind=busy]{background:#c57b12}.dot[data-kind=error]{background:#ba3137}
     #status{flex:1;line-height:1.6;overflow-wrap:anywhere}.engine{color:#58665e;font-size:14px;margin:3px 0 14px 14px;overflow-wrap:anywhere}
@@ -47,6 +48,7 @@
   <label class="settings">搜索模式<select id="mode" aria-label="搜索模式"><option value="adaptive" selected>自适应</option><option value="fixed">固定时限</option></select></label>
   <label class="settings" id="balance-row">决策偏好<input id="balance" type="range" aria-label="决策偏好" min="0" max="1" step="0.05" value="0.65"><output id="balance-label">稳健 65%</output></label>
   <label class="settings">最长计算<select id="budget" aria-label="最长计算"><option value="800">0.8 秒</option><option value="1800">1.8 秒</option><option value="2800">2.8 秒</option><option value="3500" selected>3.5 秒</option></select></label>
+  <label class="variation" title="增加随机短暂停顿和棋子内部点击位置变化；不保证防检测或防封禁"><input id="vary-operations" type="checkbox" checked>操作变化（随机停顿与点击位置）</label>
   <div class="actions"><button id="auto" class="command primary" disabled>${icon('play','开始自动')}</button><button id="single" class="command" disabled>${icon('step-forward','走一步')}</button></div>
   <div class="result"><output id="move" class="move">-</output><span id="side">-</span></div><div class="metrics"><span id="depth">深度 -</span><span id="score">评估 -</span><span id="elapsed">耗时 -</span></div>
   <div class="importance"><span id="importance">重要性 -</span><span id="allocated">预算 -</span></div><div id="pv" class="pv"></div>
@@ -264,6 +266,7 @@
     $('budget').disabled = destroyed || busy || auto;
     $('mode').disabled = destroyed || busy || auto;
     $('balance').disabled = destroyed || busy || auto;
+    $('vary-operations').disabled = destroyed || busy || auto;
     $('reconnect').disabled = booting;
     $('quick-stop').classList.toggle('hidden', !auto && !busy);
   }
@@ -401,7 +404,8 @@
         if (!analysisOnly(latest) || latest.boardKey !== snapshot.boardKey) throw new Error('分析期间局面已变化，请重新分析');
       } else {
         status('正在落子', 'busy');
-        await adapter.play(result.bestmove, snapshot, { deadline: started + Math.min(4900, turnLimit), isCancelled: () => ticket !== generation });
+        await adapter.play(result.bestmove, snapshot, { deadline: started + Math.min(4900, turnLimit),
+          isCancelled: () => ticket !== generation, varyOperations: $('vary-operations').checked });
       }
       if (ticket !== generation) return;
       if (!suggestionOnly) lastPlayed = snapshot.boardKey;
@@ -552,9 +556,10 @@
     $('balance-label').textContent = `${value >= 0.5 ? '稳健' : '速度'} ${Math.round(value * 100)}%`;
   };
   $('balance').onchange = () => persist({ balance: Number($('balance').value) });
+  $('vary-operations').onchange = () => persist({ varyOperations: $('vary-operations').checked });
   Promise.resolve().then(() => {
     if (!isContextAlive()) { invalidateContext(); return null; }
-    return chrome.storage.local.get({ movetime: 3500, mode: 'adaptive', balance: 0.65, panelLayout: null });
+    return chrome.storage.local.get({ movetime: 3500, mode: 'adaptive', balance: 0.65, panelLayout: null, varyOperations: true });
   }).then(settings => {
     if (destroyed || !settings) return;
     const { movetime, mode, balance } = settings;
@@ -563,6 +568,7 @@
     $('balance-row').classList.toggle('hidden', $('mode').value === 'fixed');
     $('balance').value = String(Number.isFinite(balance) ? Math.min(1, Math.max(0, balance)) : 0.65);
     $('balance').oninput();
+    $('vary-operations').checked = settings.varyOperations !== false;
     if (!layoutTouched) restorePanelLayout(settings.panelLayout);
   }).catch(handleContextError);
   function onRuntimeMessage(message, sender, sendResponse) {

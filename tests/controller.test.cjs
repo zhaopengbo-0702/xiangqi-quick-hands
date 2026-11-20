@@ -709,6 +709,24 @@ test('adaptive settings persist and fixed mode hides the balance control', async
   assert.match(app.elements.get('balance-label').textContent, /85%/);
 });
 
+test('operation variation defaults on, persists the toggle, and reaches board actions', async () => {
+  const app = await controller();
+  assert.equal(app.elements.get('vary-operations').checked, true);
+  await app.click('single');
+  assert.equal(app.elements.get('vary-operations').disabled, true);
+  await app.resolveSearch();
+  assert.equal(app.plays[0].options.varyOperations, true);
+  assert.equal(app.elements.get('vary-operations').disabled, false);
+  app.elements.get('vary-operations').checked = false;
+  app.elements.get('vary-operations').onchange();
+  await flush();
+  assert.ok(app.storageWrites.some(settings => settings.varyOperations === false));
+  const restored = await controller({}, { savedSettings: { varyOperations: false } });
+  await restored.click('single');
+  await restored.resolveSearch();
+  assert.equal(restored.plays[0].options.varyOperations, false);
+});
+
 test('adaptive result displays importance and its allocated compute budget', async () => {
   const app = await controller();
   await app.click('single');
