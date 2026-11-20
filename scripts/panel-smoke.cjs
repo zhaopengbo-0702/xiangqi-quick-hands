@@ -8,198 +8,263 @@ const project = path.resolve(__dirname, '..');
 const extension = path.join(project, 'extension');
 const results = path.join(project, 'test-results');
 const tempRoot = path.resolve(os.tmpdir());
-const baseline = { width: 360, height: 440, left: 300, top: 140 };
-const fixture = '<!doctype html><html><head><meta charset="utf-8"><title>Panel interaction fixture</title>' +
+const fixture = '<!doctype html><html><head><meta charset="utf-8"><title>Panel scaling fixture</title>' +
   '<style>body{margin:0;background:#edf2ee;font:16px system-ui}h1{margin:40px}</style></head>' +
-  '<body><h1>Panel interaction fixture</h1><p style="margin:40px">Local test only. No chess game is connected.</p></body></html>';
+  '<body><h1>Panel scaling fixture</h1><p style="margin:40px">Local interface test only. No chess game is connected.</p></body></html>';
 
-function close(actual, expected, message) {
-  assert.ok(Math.abs(actual - expected) < 1.1, `${message}: ${actual} versus ${expected}`);
+function close(actual, expected, message, tolerance = 1.5) {
+  assert.ok(Math.abs(actual - expected) <= tolerance, `${message}: ${actual} versus ${expected}`);
 }
 
 async function main() {
   const profile = await fs.mkdtemp(path.join(tempRoot, 'xiangqi-panel-smoke-'));
-  const errors = [];
-  const checks = [];
+  const errors = [], checks = [], observations = [];
   let context, page, worker;
   try {
     context = await chromium.launchPersistentContext(profile, {
       executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || chromium.executablePath(),
-      channel: 'chromium', headless: true, viewport: { width: 1280, height: 900 },
+      channel: 'chromium', headless: true, viewport: { width: 1600, height: 1600 },
       args: ['--disable-extensions-except=' + extension, '--load-extension=' + extension],
     });
     await context.route('https://play.xiangqi.com/**', route => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: fixture }));
     page = context.pages()[0] || await context.newPage();
     page.on('pageerror', error => errors.push(error.message));
-    worker = context.serviceWorkers()[0] || await context.waitForEvent('serviceworker', { timeout: 20000 });
+    worker = context.serviceWorkers().find(item => /\/background\.js$/.test(item.url())) || await context.waitForEvent('serviceworker', { predicate: item => /\/background\.js$/.test(item.url()), timeout: 20000 });
     await page.goto('https://play.xiangqi.com/play');
-    const panel = page.locator('#panel');
-    const header = page.locator('#panel-header');
+    const panel = page.locator('#panel'), header = page.locator('#panel-header');
     await panel.waitFor({ state: 'visible' });
+    await fs.mkdir(results, { recursive: true });
 
-    async function rect() { return panel.boundingBox(); }
+    async function geometry() {
+      return page.evaluate(() => {
+        const root = document.getElementById('xq-quick-hands').shadowRoot;
+        const panel = root.getElementById('panel'), body = root.getElementById('body');
+        const rect = element => {
+          const r = element.getBoundingClientRect();
+          return { x: r.x, y: r.y, width: r.width, height: r.height, right: r.right, bottom: r.bottom };
+        };
+        const text = root.getElementById('footer');
+        const range = document.createRange(); range.selectNodeContents(text);
+        const textRect = range.getBoundingClientRect();
+        return {
+          panel: rect(panel), header: rect(root.getElementById('panel-header')),
+          footer: rect(root.querySelector('footer')), body: rect(body),
+          text: { width: textRect.width, height: textRect.height },
+          icon: rect(root.getElementById('reconnect').querySelector('img')),
+          button: rect(root.getElementById('single')),
+          scale: Number(getComputedStyle(panel).zoom),
+          statusFont: Number.parseFloat(getComputedStyle(root.getElementById('status')).fontSize),
+          auxiliaryFont: Number.parseFloat(getComputedStyle(text).fontSize),
+          bodyClient: body.clientHeight, bodyScroll: body.scrollHeight, bodyOverflow: getComputedStyle(body).overflowY,
+          label: root.getElementById('scale-label')?.textContent,
+          collapsed: body.classList.contains('hidden'),
+        };
+      });
+    }
     async function saved() { return worker.evaluate(async () => (await chrome.storage.local.get('panelLayout')).panelLayout); }
-    async function seed(layout = baseline) {
+    async function waitScale(scale) {
+      await page.waitForFunction(scale => {
+        const panel = document.getElementById('xq-quick-hands')?.shadowRoot?.getElementById('panel');
+        return panel && Math.abs(Number(getComputedStyle(panel).zoom) - scale) < .015;
+      }, scale);
+    }
+    async function seed(layout = { scale: 1, width: 360, height: 1400, left: 220, top: 60 }) {
       await worker.evaluate(layout => chrome.storage.local.set({ panelLayout: layout }), layout);
-      await page.reload();
-      await panel.waitFor({ state: 'visible' });
-      await page.waitForFunction(layout => {
-        const r = document.getElementById('xq-quick-hands')?.shadowRoot?.getElementById('panel')?.getBoundingClientRect();
-        return r && Math.abs(r.width - layout.width) < 1 && Math.abs(r.left - layout.left) < 1;
-      }, layout);
+      await page.reload(); await panel.waitFor({ state: 'visible' });
+      const expected = layout.scale ?? Math.min(2.5, Math.max(1, layout.width / 360));
+      await waitScale(expected);
+      await page.waitForFunction(() => {
+        const p = document.getElementById('xq-quick-hands')?.shadowRoot?.getElementById('scale-up');
+        return !!p;
+      });
     }
-    async function drag(locator, dx, dy) {
-      const box = await locator.boundingBox();
-      assert.ok(box, 'Drag target must be visible');
-      const x = box.x + box.width / 2, y = box.y + box.height / 2;
-      await page.mouse.move(x, y);
-      await page.mouse.down();
-      await page.mouse.move(x + dx, y + dy, { steps: 8 });
-      await page.mouse.up();
-    }
-    async function storedEquals(expected) {
+    async function storedScale(scale) {
       await worker.evaluate(async expected => {
         for (let i = 0; i < 40; i++) {
           const actual = (await chrome.storage.local.get('panelLayout')).panelLayout;
-          if (actual && Object.keys(expected).every(key => Math.abs(actual[key] - expected[key]) < 1)) return;
+          if (actual && Math.abs(actual.scale - expected) < .015) return;
           await new Promise(resolve => setTimeout(resolve, 25));
         }
-        throw new Error('Panel layout was not saved');
-      }, expected);
+        throw new Error('The chosen interface scale was not saved');
+      }, scale);
+    }
+    async function compact() {
+      const value = await geometry();
+      assert.ok(value.panel.height <= value.header.height + value.body.height + 4 * value.scale,
+        'The outer panel must not reserve a blank region below its content: ' + JSON.stringify(value));
+      if (value.bodyScroll <= value.bodyClient + 2) {
+        close(value.panel.bottom, value.footer.bottom, 'Panel bottom follows its footer', 3 * value.scale);
+      }
+      return value;
+    }
+    async function drag(locator, dx, dy) {
+      const box = await locator.boundingBox(); assert.ok(box, 'Drag target is visible');
+      const x = box.x + box.width / 2, y = box.y + box.height / 2;
+      await page.mouse.move(x, y); await page.mouse.down();
+      await page.mouse.move(x + dx, y + dy, { steps: 10 }); await page.mouse.up();
     }
     async function fits(viewport) {
-      const r = await rect();
-      assert.ok(r.x >= 0 && r.y >= 0 && r.x + r.width <= viewport.width + 1 && r.y + r.height <= viewport.height + 1, JSON.stringify(r));
-      return r;
+      const r = (await geometry()).panel;
+      assert.ok(r.x >= -.5 && r.y >= -.5 && r.right <= viewport.width + 1 && r.bottom <= viewport.height + 1, 'Panel remains in the viewport: ' + JSON.stringify(r));
     }
+    async function screenshot(name) { await panel.screenshot({ path: path.join(results, name + '.png') }); }
+
+    await seed();
+    const normal = await compact();
+    assert.ok(normal.statusFont >= 16, 'Default main text is at least 16 CSS pixels');
+    assert.ok(normal.auxiliaryFont >= 14, 'Default supporting text is at least 14 CSS pixels');
+    assert.ok(normal.panel.height < 1000, 'Saved height cannot create an empty oversized panel');
+    await screenshot('panel-scale-100'); observations.push({ name: '100%', ...normal });
+    checks.push('readable-default-and-content-height');
+
+    for (const scale of [1.5, 2]) {
+      await seed({ scale, left: 100, top: 40, width: 360 * scale, height: 1500 });
+      const value = await compact();
+      for (const key of ['text', 'icon', 'button']) {
+        close(value[key].height, normal[key].height * scale, `${key} actual visible height scales at ${scale}`, key === 'text' ? 2.5 : 1.5);
+        close(value[key].width, normal[key].width * scale, `${key} actual visible width scales at ${scale}`, key === 'text' ? 2.5 : 1.5);
+      }
+      close(value.panel.width / normal.panel.width, scale, 'Visible panel width scales with its content', .03);
+      assert.match(value.label, new RegExp(String(scale * 100)), 'The current scale is visible');
+      await screenshot('panel-scale-' + scale * 100); observations.push({ name: scale * 100 + '%', ...value });
+      checks.push('actual-text-icons-buttons-' + scale * 100);
+    }
+
+    await seed();
+    await page.locator('#scale-up').click(); await waitScale(1.1); await storedScale(1.1);
+    await page.reload(); await panel.waitFor({ state: 'visible' }); await waitScale(1.1);
+    await page.locator('#scale-down').click(); await waitScale(1); await storedScale(1);
+    checks.push('font-controls-and-refresh-memory');
+
+    await seed({ width: 300, height: 418, left: 120, top: 40 });
+    const oldDefault = await compact();
+    close(oldDefault.scale, 1, 'Old 300px default does not migrate to smaller text', .01);
+    assert.ok(oldDefault.text.height >= normal.text.height - 1, 'Migrating old default keeps the new readable size');
+    checks.push('legacy-default-keeps-readable-100-percent');
+
+    await seed({ width: 635, height: 612, left: 120, top: 40 });
+    const migrated = await compact();
+    close(migrated.scale, 635 / 360, 'Legacy width migrates into a scale', .02);
+    close(migrated.panel.width, 635, 'Legacy size preserves visible width', 2);
+    observations.push({ name: 'legacy-635x612', ...migrated });
+    checks.push('legacy-layout-migration-removes-empty-height');
+
+    await page.setViewportSize({ width: 635, height: 612 });
+    await page.waitForFunction(() => {
+      const root = document.getElementById('xq-quick-hands').shadowRoot;
+      const r = root.getElementById('panel').getBoundingClientRect();
+      return r.right <= innerWidth + 1 && r.bottom <= innerHeight + 1;
+    });
+    const screenshotViewport = await compact(); await fits({ width: 635, height: 612 });
+    assert.ok(screenshotViewport.scale > 1.6, 'The screenshot-sized panel retains enlarged readable text');
+    assert.ok(screenshotViewport.bodyScroll > screenshotViewport.bodyClient, 'Contents scroll instead of reserving a blank tail');
+    await screenshot('panel-scale-screenshot-635x612');
+    observations.push({ name: 'screenshot-635x612', ...screenshotViewport });
+    checks.push('user-screenshot-viewport-remains-readable-and-compact');
+    await page.setViewportSize({ width: 1600, height: 1600 });
+
+    await seed();
+    const beforeLong = await compact();
+    await page.locator('#engine-name').evaluate(element => { element.textContent = 'Pikafish 本地引擎状态说明 '.repeat(45); });
+    await page.waitForFunction(height => document.getElementById('xq-quick-hands').shadowRoot.getElementById('panel').getBoundingClientRect().height > height + 50, beforeLong.panel.height);
+    const long = await compact(); await fits({ width: 1600, height: 1600 });
+    await page.locator('#engine-name').evaluate(element => { element.textContent = 'Pikafish · 本地引擎'; });
+    await page.waitForFunction(height => document.getElementById('xq-quick-hands').shadowRoot.getElementById('panel').getBoundingClientRect().height < height - 50, long.panel.height);
+    const short = await compact(); close(short.panel.height, beforeLong.panel.height, 'Short content reclaims its height', 3);
+    checks.push('dynamic-content-grows-and-shrinks-without-blank-tail');
 
     for (const direction of ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw']) {
-      await seed();
-      const dx = direction.includes('w') ? -40 : direction.includes('e') ? 40 : 0;
-      const dy = direction.includes('n') ? -30 : direction.includes('s') ? 30 : 0;
+      await seed(); const before = await compact();
+      const dx = direction.includes('w') ? -before.panel.width * .12 : direction.includes('e') ? before.panel.width * .12 : 0;
+      const dy = direction.includes('n') ? -before.panel.height * .12 : direction.includes('s') ? before.panel.height * .12 : 0;
       await drag(page.locator(`[data-resize="${direction}"]`), dx, dy);
-      const actual = await rect();
-      close(actual.width, baseline.width + Math.abs(dx), direction + ' width');
-      close(actual.height, baseline.height + Math.abs(dy), direction + ' height');
-      close(actual.x, baseline.left + Math.min(0, dx), direction + ' left anchor');
-      close(actual.y, baseline.top + Math.min(0, dy), direction + ' top anchor');
-      await storedEquals({ width: actual.width, height: actual.height, left: actual.x, top: actual.y });
-      checks.push('resize-' + direction);
+      const after = await compact();
+      assert.ok(after.scale > before.scale + .07, direction + ' enlarges the interface, not an empty box');
+      for (const key of ['text', 'icon', 'button']) assert.ok(after[key].height > before[key].height * 1.06, direction + ' visibly enlarges ' + key);
+      close(after.panel.width / before.panel.width, after.scale / before.scale, direction + ' frame scales proportionally', .025);
+      close(after.panel.height / before.panel.height, after.scale / before.scale, direction + ' height follows content proportionally', .04);
+      await storedScale(after.scale);
+      checks.push('proportional-resize-' + direction);
     }
 
-    await seed();
-    await drag(header.locator('strong'), 90, 50);
-    let actual = await rect();
-    close(actual.x, baseline.left + 90, 'Title drag left');
-    close(actual.y, baseline.top + 50, 'Title drag top');
-    await storedEquals({ width: actual.width, height: actual.height, left: actual.x, top: actual.y });
-    const remembered = actual;
-    await page.reload();
-    await panel.waitFor({ state: 'visible' });
-    await page.waitForFunction(expected => {
-      const r = document.getElementById('xq-quick-hands')?.shadowRoot?.getElementById('panel')?.getBoundingClientRect();
-      return r && Math.abs(r.left - expected.x) < 1 && Math.abs(r.top - expected.y) < 1;
-    }, remembered);
-    actual = await rect();
-    close(actual.width, remembered.width, 'Refresh width');
-    close(actual.height, remembered.height, 'Refresh height');
-    checks.push('title-drag-and-refresh-memory');
+    await seed(); const beforeMove = await geometry();
+    await drag(header.locator('strong'), 85, 45);
+    let actual = await geometry(); close(actual.panel.x, beforeMove.panel.x + 85, 'Title movement left'); close(actual.panel.y, beforeMove.panel.y + 45, 'Title movement top'); close(actual.scale, 1, 'Moving does not resize', .01);
+    const moved = actual.panel;
+    await page.reload(); await panel.waitFor({ state: 'visible' }); await waitScale(1);
+    actual = await geometry(); close(actual.panel.x, moved.x, 'Remembered movement left'); close(actual.panel.y, moved.y, 'Remembered movement top');
+    checks.push('move-and-refresh-preserve-scale-and-position');
 
-    await page.locator('#collapse').click();
-    const collapsed = await rect();
-    assert.ok(collapsed.height < 60, 'Collapsed panel contains only its header');
+    const beforeButton = await geometry();
+    await drag(page.locator('#reconnect'), 35, 30);
+    actual = await geometry(); close(actual.panel.x, beforeButton.panel.x, 'Header button does not drag left'); close(actual.panel.y, beforeButton.panel.y, 'Header button does not drag top'); close(actual.scale, beforeButton.scale, 'Header button does not resize', .01);
+    checks.push('header-controls-do-not-drag');
+    await page.locator('#quick-stop').evaluate(element => element.classList.remove('hidden'));
+    const headerControls = await page.evaluate(() => {
+      const root = document.getElementById('xq-quick-hands').shadowRoot;
+      const header = root.getElementById('panel-header').getBoundingClientRect();
+      return ['quick-stop', 'reconnect', 'collapse'].map(id => {
+        const rect = root.getElementById(id).getBoundingClientRect();
+        return rect.width > 0 && rect.left >= header.left && rect.right <= header.right && rect.top >= header.top && rect.bottom <= header.bottom;
+      });
+    });
+    assert.ok(headerControls.every(Boolean), 'Pause, reconnect and collapse remain fully inside the header');
+    checks.push('busy-header-controls-remain-accessible');
+
+    await seed({ scale: 1.5, width: 540, height: 1400, left: 200, top: 50 });
+    const expanded = await compact(); await page.locator('#collapse').click();
+    const collapsed = await geometry(); assert.ok(collapsed.panel.height < expanded.panel.height / 2); close(collapsed.scale, 1.5, 'Collapse retains scale', .01);
     assert.equal(await page.locator('.resize-handle:visible').count(), 0);
-    await drag(header.locator('strong'), -60, -40);
-    await page.locator('#collapse').click();
-    actual = await rect();
-    close(actual.width, remembered.width, 'Expand width');
-    close(actual.height, remembered.height, 'Expand height');
-    close(actual.x, remembered.x - 60, 'Collapsed movement left');
-    close(actual.y, remembered.y - 40, 'Collapsed movement top');
-    checks.push('collapse-drag-expand');
+    await drag(header.locator('strong'), 40, 30); await page.locator('#collapse').click();
+    actual = await compact(); close(actual.scale, 1.5, 'Expand retains scale', .01); close(actual.panel.height, expanded.panel.height, 'Expand recovers compact natural height', 3);
+    checks.push('collapse-drag-expand-retains-readable-scale');
 
-    const beforeButton = await rect();
-    await drag(page.locator('#reconnect'), 40, 30);
-    actual = await rect();
-    close(actual.x, beforeButton.x, 'Button must not drag panel left');
-    close(actual.y, beforeButton.y, 'Button must not drag panel top');
-    checks.push('header-buttons-do-not-drag');
+    await page.locator('#collapse').click(); await header.locator('strong').dblclick();
+    await waitScale(1); assert.ok((await geometry()).collapsed); await page.locator('#collapse').click();
+    actual = await compact(); close(actual.panel.width, 360, 'Reset restores normal interface width', 2); close(actual.scale, 1, 'Reset scale', .01);
+    checks.push('reset-while-collapsed-restores-default');
 
-    await seed();
-    await drag(page.locator('[data-resize="se"]'), -300, -350);
-    actual = await rect();
-    close(actual.width, 240, 'Minimum width');
-    close(actual.height, 180, 'Minimum height');
-    const scrollable = await page.locator('#body').evaluate(el => ({ client: el.clientHeight, scroll: el.scrollHeight, overflow: getComputedStyle(el).overflowY }));
-    assert.ok(scrollable.scroll > scrollable.client && scrollable.overflow === 'auto', 'Small panel contents must scroll');
-    await page.locator('#body').evaluate(el => { el.scrollTop = el.scrollHeight; });
-    assert.ok(await page.locator('#body').evaluate(el => el.scrollTop > 0), 'Contents can be scrolled');
-    checks.push('minimum-size-and-scroll');
-
-    await seed();
+    await seed({ scale: 2, width: 720, height: 1500, left: 100, top: 40 });
     await page.setViewportSize({ width: 320, height: 280 });
     await page.waitForFunction(() => {
-      const r = document.getElementById('xq-quick-hands')?.shadowRoot?.getElementById('panel')?.getBoundingClientRect();
-      return r && r.right <= innerWidth && r.bottom <= innerHeight;
+      const r = document.getElementById('xq-quick-hands').shadowRoot.getElementById('panel').getBoundingClientRect();
+      return r.right <= innerWidth + 1 && r.bottom <= innerHeight + 1;
     });
     await fits({ width: 320, height: 280 });
-    await page.reload();
-    await panel.waitFor({ state: 'visible' });
-    await fits({ width: 320, height: 280 });
-    checks.push('small-viewport-and-refresh');
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await header.locator('strong').dblclick();
-    actual = await rect();
-    close(actual.width, 300, 'Reset desktop width');
-    close(actual.x + actual.width, 1280 - 16, 'Reset right position');
-    close(actual.y + actual.height, 900 - 16, 'Reset bottom position');
+    const small = await geometry();
+    assert.ok(small.header.height > 0 && small.bodyClient > 0, 'Small viewport retains header and scrollable content');
+    assert.ok(small.bodyScroll > small.bodyClient && small.bodyOverflow === 'auto', 'Small viewport scrolls contents');
+    await page.locator('#body').evaluate(element => { element.scrollTop = element.scrollHeight; });
+    assert.ok(await page.locator('#body').evaluate(element => element.scrollTop > 0));
+    await page.reload(); await panel.waitFor({ state: 'visible' }); await fits({ width: 320, height: 280 });
+    checks.push('small-viewport-scroll-and-refresh');
+    await page.setViewportSize({ width: 1600, height: 1600 }); await header.locator('strong').dblclick(); await waitScale(1); await compact();
     checks.push('double-click-reset');
-    await seed();
-    await page.locator('#collapse').click();
-    await header.locator('strong').dblclick();
-    assert.ok((await rect()).height < 60, 'Reset keeps a collapsed panel collapsed');
-    await page.locator('#collapse').click();
-    actual = await rect();
-    close(actual.width, 300, 'Reset while collapsed restores expanded default width');
-    assert.ok(actual.height > 300, 'Reset while collapsed restores expanded content height');
-    checks.push('double-click-reset-while-collapsed');
 
     const handle = await page.locator('[data-resize="nw"]').boundingBox();
-    await page.mouse.move(handle.x + 7, handle.y + 7);
-    await page.mouse.down();
-    await page.mouse.move(handle.x - 20, handle.y - 20, { steps: 4 });
+    await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2); await page.mouse.down(); await page.mouse.move(handle.x - 20, handle.y - 20, { steps: 4 });
     const cleanup = await worker.evaluate(async () => {
       const tabs = await chrome.tabs.query({ url: 'https://play.xiangqi.com/*' });
       return chrome.scripting.executeScript({ target: { tabId: tabs[0].id }, world: 'ISOLATED', func: () => {
-        const host = document.getElementById('xq-quick-hands');
-        const panel = host.shadowRoot.getElementById('panel');
-        const header = host.shadowRoot.getElementById('panel-header');
+        const host = document.getElementById('xq-quick-hands'), root = host.shadowRoot;
+        const panel = root.getElementById('panel'), header = root.getElementById('panel-header');
         globalThis.__xiangqiQuickHands.destroy();
-        window.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, clientX: 0, clientY: 0 }));
-        window.dispatchEvent(new Event('resize'));
+        window.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, clientX: 0, clientY: 0 })); window.dispatchEvent(new Event('resize'));
         return { removed: !host.isConnected, alive: globalThis.__xiangqiQuickHands.isAlive(), panelHandler: panel.onpointerdown, headerHandler: header.onpointerdown, resizeState: panel.dataset.interacting };
       } });
     });
-    await page.mouse.up();
-    assert.deepEqual(cleanup[0].result, { removed: true, alive: false, panelHandler: null, headerHandler: null });
+    await page.mouse.up(); assert.deepEqual(cleanup[0].result, { removed: true, alive: false, panelHandler: null, headerHandler: null });
     await worker.evaluate(async () => {
-      const tabs = await chrome.tabs.query({ url: 'https://play.xiangqi.com/*' });
-      await chrome.scripting.executeScript({ target: { tabId: tabs[0].id }, world: 'ISOLATED', files: ['content.js'] });
+      const tabs = await chrome.tabs.query({ url: 'https://play.xiangqi.com/*' }); await chrome.scripting.executeScript({ target: { tabId: tabs[0].id }, world: 'ISOLATED', files: ['content.js'] });
     });
-    await panel.waitFor({ state: 'visible' });
-    assert.equal(await page.locator('#xq-quick-hands').count(), 1);
-    checks.push('destroy-during-pointer-capture-and-reinject');
+    await panel.waitFor({ state: 'visible' }); assert.equal(await page.locator('#xq-quick-hands').count(), 1); await compact();
+    checks.push('destroy-during-scaled-pointer-capture-and-reinject');
     assert.deepEqual(errors, []);
-    await fs.mkdir(results, { recursive: true });
-    await page.screenshot({ path: path.join(results, 'panel-resize.png'), fullPage: true });
-    const report = { ok: true, manifestVersion: JSON.parse(await fs.readFile(path.join(extension, 'manifest.json'), 'utf8')).version, checks, checkCount: checks.length, finalRect: await rect(), savedLayout: await saved(), pageErrors: errors };
-    await fs.writeFile(path.join(results, 'panel-resize.json'), JSON.stringify(report, null, 2) + '\n');
-    console.log(JSON.stringify(report, null, 2));
+    const report = { ok: true, manifestVersion: JSON.parse(await fs.readFile(path.join(extension, 'manifest.json'), 'utf8')).version, checks, checkCount: checks.length, observations, finalGeometry: await geometry(), savedLayout: await saved(), pageErrors: errors };
+    await fs.writeFile(path.join(results, 'panel-resize.json'), JSON.stringify(report, null, 2) + '\n'); console.log(JSON.stringify(report, null, 2));
   } catch (error) {
-    await fs.mkdir(results, { recursive: true });
-    await page?.screenshot({ path: path.join(results, 'panel-resize-failed.png'), fullPage: true }).catch(() => {});
-    await fs.writeFile(path.join(results, 'panel-resize-failed.json'), JSON.stringify({ ok: false, checks, pageErrors: errors, error: error.stack || String(error) }, null, 2) + '\n');
-    throw error;
+    await fs.mkdir(results, { recursive: true }); await page?.screenshot({ path: path.join(results, 'panel-resize-failed.png'), fullPage: true }).catch(() => {});
+    await fs.writeFile(path.join(results, 'panel-resize-failed.json'), JSON.stringify({ ok: false, checks, pageErrors: errors, error: error.stack || String(error) }, null, 2) + '\n'); throw error;
   } finally {
     await context?.close();
     if (path.dirname(profile) !== tempRoot || !path.basename(profile).startsWith('xiangqi-panel-smoke-')) throw new Error('Refusing unexpected profile cleanup path');

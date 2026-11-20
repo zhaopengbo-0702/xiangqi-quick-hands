@@ -13,10 +13,10 @@
   const root = host.attachShadow({ mode: 'open' });
   const icon = (name, label) => `<img src="${resourceBase}icons/${name}.svg" width="17" height="17" alt="" aria-hidden="true">${label || ''}`;
   root.innerHTML = `<style>
-    :host{all:initial;font-family:"Microsoft YaHei",system-ui,sans-serif;color:#202629;font-size:13px;letter-spacing:0;color-scheme:light}:host(.hidden){display:none!important}
+    :host{all:initial;font-family:"Microsoft YaHei",system-ui,sans-serif;color:#202629;font-size:16px;letter-spacing:0;color-scheme:light}:host(.hidden){display:none!important}
     *{box-sizing:border-box}button,select{font:inherit;letter-spacing:0}button{cursor:pointer}button:disabled{cursor:default;opacity:.45}
-    .panel{position:relative;display:flex;flex-direction:column;width:300px;max-width:calc(100vw - 24px);background:#fff;border:1px solid #d2d9d6;border-radius:8px;box-shadow:0 6px 28px #162a2326;overflow:hidden}
-    header{height:48px;flex:none;display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid #e7eae8;background:#f7f9f8;cursor:move;touch-action:none;user-select:none}
+    .panel{position:relative;display:flex;flex-direction:column;width:360px;height:auto;background:#fff;border:1px solid #d2d9d6;border-radius:8px;box-shadow:0 6px 28px #162a2326;overflow:hidden}
+    header{height:52px;flex:none;display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid #e7eae8;background:#f7f9f8;cursor:move;touch-action:none;user-select:none}
     #body{min-height:0;overflow:auto;flex:1}.panel[data-interacting]{user-select:none}
     .resize-handle{position:absolute;z-index:2;touch-action:none;user-select:none}
     [data-resize=n],[data-resize=s]{height:8px;left:14px;right:14px;cursor:ns-resize}[data-resize=n]{top:0}[data-resize=s]{bottom:0}
@@ -26,23 +26,24 @@
     [data-resize=ne]{top:0;right:0}[data-resize=nw]{top:0;left:0}[data-resize=se]{bottom:0;right:0}[data-resize=sw]{bottom:0;left:0}
     [data-resize=se]::after{content:"";position:absolute;right:3px;bottom:3px;width:8px;height:8px;background:repeating-linear-gradient(135deg,transparent 0 2px,#96a69d 2px 3px)}
     .panel[data-collapsed=true] .resize-handle{display:none}
-    .brand{width:25px;height:25px;border-radius:50%;background:#b3292d;color:#fff;display:grid;place-items:center;font-size:17px;font-weight:700}
-    strong{font-size:14px;font-weight:700;flex:1;min-width:0}.icon{width:28px;height:28px;flex:none;display:grid;place-items:center;border:0;background:transparent;border-radius:4px}
+    .brand{width:28px;height:28px;flex:none;border-radius:50%;background:#b3292d;color:#fff;display:grid;place-items:center;font-size:19px;font-weight:700}
+    strong{font-size:17px;font-weight:700;flex:1;min-width:0;white-space:nowrap}.icon{width:30px;height:30px;flex:none;display:grid;place-items:center;border:0;background:transparent;border-radius:4px}
+    .scale-tools{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;color:#485d51;font-size:14px}
+    .scale-tools div{display:flex;align-items:center;gap:6px}.scale-button{min-width:34px;min-height:30px;padding:2px 7px;border:1px solid #bdccc3;border-radius:4px;background:#f6f8f7;color:#243c2e;font-weight:700}.scale-tools output{min-width:42px;text-align:center;font-variant-numeric:tabular-nums}
     .icon:hover{background:#e6eeea}img{display:inline-block;flex:none}main{padding:12px} .state{display:flex;align-items:center;gap:7px;min-height:24px}
     .dot{width:7px;height:7px;flex:none;border-radius:50%;background:#8a9690}.dot[data-kind=ready]{background:#19845d}.dot[data-kind=busy]{background:#c57b12}.dot[data-kind=error]{background:#ba3137}
-    #status{flex:1;line-height:1.6;overflow-wrap:anywhere}.engine{color:#6d7872;font-size:11px;margin:3px 0 14px 14px;overflow-wrap:anywhere}
+    #status{flex:1;line-height:1.6;overflow-wrap:anywhere}.engine{color:#58665e;font-size:14px;margin:3px 0 14px 14px;overflow-wrap:anywhere}
     .settings{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;color:#5c6862}select{max-width:155px;padding:5px 6px;border:1px solid #d5ddd8;border-radius:4px;background:white;color:#263a30}
-    input[type=range]{width:112px;min-width:40px;flex:1;accent-color:#176d4d;margin:0}#balance-label{font-size:11px;min-width:48px;text-align:right}.importance{display:flex;align-items:center;justify-content:space-between;font-size:11px;color:#6d7872;margin-top:9px;gap:8px}
-    .actions{display:grid;grid-template-columns:1.35fr 1fr;gap:8px} .command{display:flex;align-items:center;justify-content:center;gap:6px;min-height:36px;border:1px solid #ccd7d0;border-radius:5px;background:#f6f8f7;color:#253c2e;font-weight:600}
+    input[type=range]{width:112px;min-width:40px;flex:1;accent-color:#176d4d;margin:0}#balance-label{font-size:14px;min-width:64px;text-align:right}.importance{display:flex;align-items:center;justify-content:space-between;font-size:14px;color:#58665e;margin-top:9px;gap:8px}
+    .actions{display:grid;grid-template-columns:1.35fr 1fr;gap:8px} .command{display:flex;align-items:center;justify-content:center;gap:6px;min-height:40px;border:1px solid #ccd7d0;border-radius:5px;background:#f6f8f7;color:#253c2e;font-weight:600}
     .primary{background:#176d4d;color:white;border-color:#176d4d}.primary img{filter:brightness(0) invert(1)}.primary.running{background:#a52b32;border-color:#a52b32}
-    .result{margin-top:14px;border-top:1px solid #e7eae8;padding-top:11px;display:flex;justify-content:space-between;align-items:center;gap:8px}.move{font-family:Consolas,monospace;font-size:19px;font-weight:600;color:#224b38;white-space:nowrap}
-    #side{font-size:12px;color:#6d7872}.metrics{display:flex;flex-wrap:wrap;justify-content:space-between;color:#7a837f;font-size:11px;gap:5px;margin-top:7px;font-variant-numeric:tabular-nums}.pv{color:#6d7872;font-family:Consolas,monospace;font-size:11px;line-height:1.6;overflow-wrap:anywhere;margin-top:9px;max-height:54px;overflow:auto}
-    footer{display:flex;flex-wrap:wrap;gap:5px;align-items:center;justify-content:space-between;padding:9px 16px 9px 12px;background:#f7f9f8;border-top:1px solid #e7eae8;color:#6d7872;font-size:11px}
+    .result{margin-top:14px;border-top:1px solid #e7eae8;padding-top:11px;display:flex;justify-content:space-between;align-items:center;gap:8px}.move{font-family:Consolas,monospace;font-size:23px;font-weight:600;color:#224b38;white-space:nowrap}
+    #side{font-size:14px;color:#58665e}.metrics{display:flex;flex-wrap:wrap;justify-content:space-between;color:#58665e;font-size:14px;gap:5px;margin-top:7px;font-variant-numeric:tabular-nums}.pv{color:#58665e;font-family:Consolas,monospace;font-size:14px;line-height:1.6;overflow-wrap:anywhere;margin-top:9px;max-height:5em;overflow:auto}
+    footer{display:flex;flex-wrap:wrap;gap:5px;align-items:center;justify-content:space-between;padding:9px 16px 9px 12px;background:#f7f9f8;border-top:1px solid #e7eae8;color:#58665e;font-size:14px}
     .hidden{display:none!important}:focus-visible{outline:2px solid #158a60;outline-offset:2px}
-    @media(max-width:560px){.panel{width:266px}header{height:42px}main{padding:10px}}
   </style><section id="panel" class="panel" aria-label="象棋快手控制台">
-  <header id="panel-header" title="拖动标题栏移动；拖动边缘或四角缩放；双击标题栏恢复默认大小和位置"><span class="brand">帥</span><strong>象棋快手</strong><button id="quick-stop" class="icon hidden" title="立即暂停" aria-label="立即暂停">${icon('pause')}</button><button id="reconnect" class="icon" title="重新连接引擎" aria-label="重新连接引擎">${icon('refresh-cw')}</button><button id="collapse" class="icon" title="收起控制台" aria-label="收起控制台">${icon('minus')}</button></header>
-  <div id="body"><main><div class="state"><span class="dot" id="dot"></span><span id="status" role="status" aria-live="polite">等待棋盘</span></div><div class="engine" id="engine-name">Pikafish · 本地引擎</div>
+  <header id="panel-header" title="拖动标题栏移动；拖动边缘或四角同步放大文字与按钮；双击标题栏恢复默认"><span class="brand">帥</span><strong>象棋快手</strong><button id="quick-stop" class="icon hidden" title="立即暂停" aria-label="立即暂停">${icon('pause')}</button><button id="reconnect" class="icon" title="重新连接引擎" aria-label="重新连接引擎">${icon('refresh-cw')}</button><button id="collapse" class="icon" title="收起控制台" aria-label="收起控制台">${icon('minus')}</button></header>
+  <div id="body"><main><div class="scale-tools"><span>界面大小</span><div><button id="scale-down" class="scale-button" title="缩小文字和按钮" aria-label="缩小文字和按钮">A−</button><output id="scale-label">100%</output><button id="scale-up" class="scale-button" title="放大文字和按钮" aria-label="放大文字和按钮">A+</button></div></div><div class="state"><span class="dot" id="dot"></span><span id="status" role="status" aria-live="polite">等待棋盘</span></div><div class="engine" id="engine-name">Pikafish · 本地引擎</div>
   <label class="settings">搜索模式<select id="mode" aria-label="搜索模式"><option value="adaptive" selected>自适应</option><option value="fixed">固定时限</option></select></label>
   <label class="settings" id="balance-row">决策偏好<input id="balance" type="range" aria-label="决策偏好" min="0" max="1" step="0.05" value="0.65"><output id="balance-label">稳健 65%</output></label>
   <label class="settings">最长计算<select id="budget" aria-label="最长计算"><option value="800">0.8 秒</option><option value="1800">1.8 秒</option><option value="2800">2.8 秒</option><option value="3500" selected>3.5 秒</option></select></label>
@@ -80,50 +81,58 @@
   let layoutTouched = false;
   let panelInteraction = null;
 
+  const PANEL_WIDTH = 360;
   const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
   function panelBounds() {
     const width = Math.max(1, window.innerWidth);
     const height = Math.max(1, window.innerHeight);
     const margin = Math.min(12, (width - 1) / 2, (height - 1) / 2);
-    return { width, height, margin, minWidth: Math.min(240, width - 2 * margin), minHeight: Math.min(180, height - 2 * margin) };
+    return { width, height, margin, maxScale: Math.min(2.5, (width - 2 * margin) / PANEL_WIDTH) };
   }
   function applyPanelLayout(layout) {
     const bounds = panelBounds();
-    const width = clamp(layout.width, bounds.minWidth, bounds.width - 2 * bounds.margin);
-    const height = clamp(layout.height, bounds.minHeight, bounds.height - 2 * bounds.margin);
-    const collapsed = $('body').classList.contains('hidden');
-    const visibleHeight = collapsed ? Math.min(panelHeader.getBoundingClientRect().height + 2, bounds.height - 2 * bounds.margin) : height;
+    const requestedScale = clamp(Number.isFinite(layout.scale) ? layout.scale : 1, 0.8, 2.5);
+    const scale = Math.min(requestedScale, bounds.maxScale);
+    Object.assign(panel.style, { zoom: String(scale), width: `${PANEL_WIDTH}px`, height: 'auto',
+      maxWidth: 'none', maxHeight: `${(bounds.height - 2 * bounds.margin) / scale}px` });
+    const rect = panel.getBoundingClientRect();
     panelLayout = {
-      width, height,
-      left: clamp(layout.left, bounds.margin, bounds.width - width - bounds.margin),
-      top: clamp(layout.top, bounds.margin, bounds.height - visibleHeight - bounds.margin),
+      scale: requestedScale, width: rect.width, height: rect.height,
+      left: clamp(layout.left, bounds.margin, bounds.width - rect.width - bounds.margin),
+      top: clamp(layout.top, bounds.margin, bounds.height - rect.height - bounds.margin),
     };
     Object.assign(host.style, { left: `${panelLayout.left}px`, top: `${panelLayout.top}px`, right: 'auto', bottom: 'auto' });
-    Object.assign(panel.style, { width: `${width}px`, height: collapsed ? `${visibleHeight}px` : `${height}px`, maxWidth: 'none' });
+    $('scale-label').textContent = `${Math.round(scale * 100)}%`;
+    $('scale-down').disabled = destroyed || scale <= Math.min(0.8, bounds.maxScale) + 0.001;
+    $('scale-up').disabled = destroyed || scale >= bounds.maxScale - 0.001;
   }
   function restorePanelLayout(saved) {
-    if (saved && ['width', 'height', 'left', 'top'].every(key => Number.isFinite(saved[key])) && saved.width > 0 && saved.height > 0) {
-      applyPanelLayout(saved);
-    }
+    if (!saved || !['left', 'top'].every(key => Number.isFinite(saved[key]))) return;
+    // Old releases saved an arbitrary box height. Only its width migrates to a scale.
+    const scale = Number.isFinite(saved.scale) && saved.scale > 0 ? saved.scale :
+      Number.isFinite(saved.width) && saved.width > 0 ? Math.max(1, saved.width / PANEL_WIDTH) : null;
+    if (scale !== null) applyPanelLayout({ ...saved, scale });
   }
   function resetPanelLayout() {
     layoutTouched = true;
     const bounds = panelBounds();
-    panel.style.width = `${bounds.width <= 560 ? 266 : 300}px`;
-    panel.style.height = 'auto';
-    // Measure the expanded contents even when the reset follows a collapsed header.
-    const collapsed = $('body').classList.contains('hidden');
-    $('body').classList.remove('hidden');
-    const rect = panel.getBoundingClientRect();
-    $('body').classList.toggle('hidden', collapsed);
-    applyPanelLayout({ width: rect.width, height: rect.height, left: bounds.width - rect.width - 16, top: bounds.height - rect.height - 16 });
+    applyPanelLayout({ scale: 1, left: bounds.width, top: bounds.height });
+    applyPanelLayout({ ...panelLayout, left: bounds.width - panelLayout.width - 16, top: bounds.height - panelLayout.height - 16 });
+    persist({ panelLayout: { ...panelLayout } });
+  }
+  function changePanelScale(change) {
+    if (destroyed) return;
+    layoutTouched = true;
+    const currentScale = Math.min(panelLayout.scale, panelBounds().maxScale);
+    applyPanelLayout({ ...panelLayout, scale: Math.round((currentScale + change) * 10) / 10 });
     persist({ panelLayout: { ...panelLayout } });
   }
   function startPanelInteraction(event, direction = '') {
     if (destroyed || panelInteraction || event.button !== 0 || (direction && $('body').classList.contains('hidden'))) return;
     layoutTouched = true;
     const capture = direction ? event.target : panelHeader;
-    panelInteraction = { pointerId: event.pointerId, capture, x: event.clientX, y: event.clientY, direction, layout: { ...panelLayout } };
+    panelInteraction = { pointerId: event.pointerId, capture, x: event.clientX, y: event.clientY, direction,
+      layout: { ...panelLayout, scale: Math.min(panelLayout.scale, panelBounds().maxScale) } };
     panel.dataset.interacting = direction ? 'resize' : 'move';
     capture.setPointerCapture(event.pointerId);
     event.preventDefault();
@@ -137,12 +146,17 @@
       applyPanelLayout({ ...original, left: original.left + dx, top: original.top + dy });
     } else {
       const bounds = panelBounds(), direction = interaction.direction;
-      let left = original.left, top = original.top, right = left + original.width, bottom = top + original.height;
-      if (direction.includes('w')) left = clamp(left + dx, bounds.margin, right - bounds.minWidth);
-      if (direction.includes('e')) right = clamp(right + dx, left + bounds.minWidth, bounds.width - bounds.margin);
-      if (direction.includes('n')) top = clamp(top + dy, bounds.margin, bottom - bounds.minHeight);
-      if (direction.includes('s')) bottom = clamp(bottom + dy, top + bounds.minHeight, bounds.height - bounds.margin);
-      applyPanelLayout({ width: right - left, height: bottom - top, left, top });
+      const horizontal = direction.includes('e') || direction.includes('w');
+      const vertical = direction.includes('s') || direction.includes('n');
+      const widthChange = horizontal ? (direction.includes('w') ? -dx : dx) / original.width : 0;
+      const heightChange = vertical ? (direction.includes('n') ? -dy : dy) / original.height : 0;
+      const change = !horizontal ? heightChange : !vertical ? widthChange :
+        Math.abs(widthChange) >= Math.abs(heightChange) ? widthChange : heightChange;
+      const scale = Math.min(clamp(original.scale * (1 + change), 0.8, 2.5), bounds.maxScale);
+      applyPanelLayout({ ...original, scale });
+      applyPanelLayout({ ...panelLayout,
+        left: direction.includes('w') ? original.left + original.width - panelLayout.width : original.left,
+        top: direction.includes('n') ? original.top + original.height - panelLayout.height : original.top });
     }
     event.preventDefault();
   }
@@ -166,13 +180,19 @@
     if (!event.target.closest('button')) startPanelInteraction(event);
   };
   panelHeader.ondblclick = event => { if (!event.target.closest('button') && !destroyed) resetPanelLayout(); };
+  $('scale-down').onclick = () => changePanelScale(-0.1);
+  $('scale-up').onclick = () => changePanelScale(0.1);
   panel.onlostpointercapture = finishPanelInteraction;
   window.addEventListener('pointermove', movePanelInteraction);
   window.addEventListener('pointerup', finishPanelInteraction);
   window.addEventListener('pointercancel', finishPanelInteraction);
   window.addEventListener('resize', onPanelViewportResize);
   const initialPanelRect = panel.getBoundingClientRect();
-  applyPanelLayout({ width: initialPanelRect.width, height: initialPanelRect.height, left: initialPanelRect.left, top: initialPanelRect.top });
+  applyPanelLayout({ scale: 1, left: initialPanelRect.left, top: initialPanelRect.top });
+  const panelSizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => {
+    if (!destroyed && panelLayout) applyPanelLayout(panelLayout);
+  });
+  panelSizeObserver?.observe(panel);
 
   function isContextAlive() {
     try { return !destroyed && chrome.runtime.id === extensionId; } catch { return false; }
@@ -191,6 +211,8 @@
       clearTimeout(tickTimer);
       for (const waiter of [...pageWaiters]) waiter.finish();
       finishPanelInteraction();
+      panelSizeObserver?.disconnect();
+      $('scale-down').onclick = $('scale-up').onclick = null;
       panel.onpointerdown = panel.onlostpointercapture = panelHeader.onpointerdown = panelHeader.ondblclick = null;
       window.removeEventListener('pointermove', movePanelInteraction);
       window.removeEventListener('pointerup', finishPanelInteraction);
