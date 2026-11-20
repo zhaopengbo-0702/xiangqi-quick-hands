@@ -43,6 +43,26 @@ test("an expired deadline prevents all board interaction", async () => {
   await assert.rejects(adapter.play("b3e3", {}, { deadline: performance.now() - 1 }), /超时/);
 });
 
+test("a hidden document can use a valid board while website modal obstruction still blocks clicks", () => {
+  const adapter = Object.create(XiangqiSiteAdapter.prototype);
+  const snapshot = normalizeSnapshot({ playerSide: "red", gameID: "hidden-test", gamePlayData: {
+    initFen: INITIAL, currentFen: INITIAL, turnNow: "red", moveCount: 0, state: 2, endReason: null
+  } });
+  const rect = { left: 10, top: 10, width: 450, height: 500 };
+  const board = { querySelectorAll: () => Array(90), getBoundingClientRect: () => rect, contains: hit => hit === target };
+  const events = [];
+  const target = { getBoundingClientRect: () => ({ left: 10, top: 10, width: 40, height: 40 }), dispatchEvent: event => events.push(event.type) };
+  let hit = target;
+  adapter.document = { visibilityState: "hidden", querySelector: () => board, elementFromPoint: () => hit };
+  adapter.window = { MouseEvent: class { constructor(type) { this.type = type; } } };
+  assert.equal(adapter.assertReady(snapshot, snapshot), board);
+  adapter.clickTarget(target);
+  assert.deepEqual(events, ['mousedown', 'mouseup', 'click']);
+  hit = {};
+  assert.throws(() => adapter.clickTarget(target), /弹窗遮挡/);
+  assert.equal(events.length, 3);
+});
+
 test("acknowledgement placement identifies a move even after a fast bot reply", () => {
   assert.equal(applyPlacement(INITIAL, "b3e3"), "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/4C2C1/9/RNBAKABNR");
   assert.throws(() => applyPlacement(INITIAL, "a10a9"), /opponent/);
@@ -169,12 +189,12 @@ test("version two board requests ignore obsolete bridge responses after extensio
     crypto: require("node:crypto").webcrypto, performance,
     addEventListener: (_type, callback) => { receive = callback; }, removeEventListener() {},
     postMessage(message) {
-      assert.equal(message.type, "xiangqi-assistant:read:v2");
+      assert.equal(message.type, "xiangqi-assistant:read:v3");
       const response = { nonce: message.nonce, requestId: message.requestId };
       receive({ source: fakeWindow, origin: fakeWindow.location.origin, data: { ...response,
         type: "xiangqi-assistant:state", payload: { error: "obsolete-state" } } });
       receive({ source: fakeWindow, origin: fakeWindow.location.origin, data: { ...response,
-        type: "xiangqi-assistant:state:v2", payload: raw } });
+        type: "xiangqi-assistant:state:v3", payload: raw } });
     }
   };
   const adapter = new XiangqiSiteAdapter({ window: fakeWindow, document: {} });
@@ -196,12 +216,12 @@ test("bridge reads the live board props shape and derives side from piece case",
   const window = { addEventListener: (type, callback) => callbacks.push(callback), postMessage: (value) => posts.push(value) };
   const document = { querySelector: () => board };
   vm.runInNewContext(fs.readFileSync(require.resolve("../extension/page-bridge.js"), "utf8"), { window, location, document });
-  callbacks[0]({ source: window, origin: location.origin, data: { type: "xiangqi-assistant:read:v2", nonce: "0123456789abcdef0123456789abcdef", requestId: 1 } });
+  callbacks[0]({ source: window, origin: location.origin, data: { type: "xiangqi-assistant:read:v3", nonce: "0123456789abcdef0123456789abcdef", requestId: 1 } });
   assert.equal(posts[0].payload.playerSide, "red");
   assert.equal(posts[0].payload.isDrawArrows, true);
   assert.equal(posts[0].payload.gameID, "live-game");
   boardContext.myPieceCase = "toLowerCase";
-  callbacks[0]({ source: window, origin: location.origin, data: { type: "xiangqi-assistant:read:v2", nonce: "0123456789abcdef0123456789abcdef", requestId: 2 } });
+  callbacks[0]({ source: window, origin: location.origin, data: { type: "xiangqi-assistant:read:v3", nonce: "0123456789abcdef0123456789abcdef", requestId: 2 } });
   assert.equal(posts[1].payload.playerSide, "black");
 });
 
@@ -212,12 +232,13 @@ test("right-click arrow support does not block a normal move", () => {
   assert.doesNotThrow(() => adapter.assertReady(snapshot, snapshot));
 });
 
-test("allows only the verified computer, online lobby and game routes", () => {
+test("classifies verified game routes separately from read-only analysis routes", () => {
   assert.equal(routeMode("/computer-play"), "computer");
   assert.equal(routeMode("/play"), "online");
   assert.equal(routeMode("/game/aB12_3-4"), "online");
   assert.equal(routeMode("/game/aB12_3-4/"), "online");
-  for (const pathname of ["/watch/test", "/analysis/board", "/review/test", "/game/", "/game/id/review", "/play/other"]) assert.equal(routeMode(pathname), null);
+  for (const pathname of ["/watch/test", "/analysis/board", "/review/test"]) assert.equal(routeMode(pathname), "analysis");
+  for (const pathname of ["/game/", "/game/id/review", "/play/other"]) assert.equal(routeMode(pathname), null);
 });
 
 test("bridge adapts online footer participant proof and server-adjusted clock", () => {
@@ -237,7 +258,7 @@ test("bridge adapts online footer participant proof and server-adjusted clock", 
   const window = { addEventListener: (type, callback) => callbacks.push(callback), postMessage: (value) => posts.push(value) };
   vm.runInNewContext(fs.readFileSync(require.resolve("../extension/page-bridge.js"), "utf8"), { window, location, document: { querySelector: () => board }, Date: { now: () => now } });
   const read = () => {
-    callbacks[0]({ source: window, origin: location.origin, data: { type: "xiangqi-assistant:read:v2", nonce: "0123456789abcdef0123456789abcdef", requestId: posts.length } });
+    callbacks[0]({ source: window, origin: location.origin, data: { type: "xiangqi-assistant:read:v3", nonce: "0123456789abcdef0123456789abcdef", requestId: posts.length } });
     return posts.at(-1).payload;
   };
   const first = read();
@@ -274,7 +295,7 @@ test("online reads reject wrong-mode and stale-route responses", async () => {
     crypto: require("node:crypto").webcrypto, performance,
     addEventListener(type, callback) { listener = callback; }, removeEventListener() {},
     postMessage(message) {
-      queueMicrotask(() => listener({ source: fakeWindow, origin: fakeWindow.location.origin, data: { type: "xiangqi-assistant:state:v2", nonce: message.nonce, requestId: message.requestId, payload } }));
+      queueMicrotask(() => listener({ source: fakeWindow, origin: fakeWindow.location.origin, data: { type: "xiangqi-assistant:state:v3", nonce: message.nonce, requestId: message.requestId, payload } }));
     }
   };
   const adapter = new XiangqiSiteAdapter({ window: fakeWindow, document: {} });

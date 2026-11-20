@@ -68,7 +68,7 @@ async function command(type, payload = {}) {
     catch (error) {
       if (!/Receiving end does not exist/.test(error.message)) throw error;
       documentReady = undefined;
-      if (type !== 'XQ_ENGINE_WARMUP' || attempt >= 5) throw error;
+      if (!['XQ_ENGINE_WARMUP', 'XQ_ENGINE_PULSE'].includes(type) || attempt >= 5) throw error;
       await new Promise(resolve => setTimeout(resolve, 60));
       continue;
     }
@@ -100,4 +100,24 @@ export async function cancel() {
   generation += 1;
   if (!documentReady) return;
   await command('XQ_ENGINE_CANCEL');
+}
+
+export async function setBackgroundPulse(enabled) {
+  if (enabled) return command('XQ_ENGINE_PULSE', { enabled: true });
+  // Stopping a timer must never create an offscreen document just to stop it.
+  if (documentReady) await documentReady;
+  else {
+    const contexts = await chrome.runtime.getContexts({
+      contextTypes: ['OFFSCREEN_DOCUMENT'], documentUrls: [chrome.runtime.getURL('offscreen.html')],
+    });
+    if (!contexts.length) return { enabled: false };
+  }
+  try {
+    const response = await chrome.runtime.sendMessage({ target: TARGET, type: 'XQ_ENGINE_PULSE', enabled: false });
+    if (!response?.ok) throw new Error(response?.error || 'The pulse timer did not respond.');
+    return response.result;
+  } catch (error) {
+    if (/Receiving end does not exist/.test(error.message)) { documentReady = undefined; return { enabled: false }; }
+    throw error;
+  }
 }

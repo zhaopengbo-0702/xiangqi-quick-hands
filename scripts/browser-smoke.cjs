@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
+const {spawn} = require('node:child_process');
 const {chromium} = require('playwright');
 
 const project = path.resolve(__dirname, '..');
@@ -11,8 +12,9 @@ const artifactPrefix = process.env.XQ_SMOKE_ARTIFACT_PREFIX || 'mv3-pikafish';
 const syncScenario = process.env.XQ_SMOKE_SYNC === '1';
 const reloadScenario = process.env.XQ_SMOKE_RELOAD === '1';
 const ackScenario = process.env.XQ_SMOKE_ACK === '1';
+const backgroundScenario = process.env.XQ_SMOKE_BACKGROUND === '1';
 const playerSide = process.env.XQ_SMOKE_SIDE || 'red';
-if([syncScenario,reloadScenario,ackScenario].filter(Boolean).length>1)throw new Error('Run sync, reload and acknowledgement scenarios separately.');
+if([syncScenario,reloadScenario,ackScenario,backgroundScenario].filter(Boolean).length>1)throw new Error('Run sync, reload, acknowledgement and background scenarios separately.');
 if(!['red','black'].includes(playerSide))throw new Error('Invalid smoke player side');
 if (!/^[a-z0-9-]+$/.test(artifactPrefix)) throw new Error('Invalid smoke artifact prefix');
 const tempRoot = path.resolve(os.tmpdir());
@@ -25,6 +27,7 @@ const fixture = `<!doctype html><html lang="en"><head><meta charset="utf-8"><tit
 const INITIAL = ${JSON.stringify(initialFen)};
 const SYNC_SCENARIO = ${JSON.stringify(syncScenario)};
 const ACK_SCENARIO = ${JSON.stringify(ackScenario)};
+const BACKGROUND_SCENARIO = ${JSON.stringify(backgroundScenario)};
 const PLAYER_SIDE = ${JSON.stringify(playerSide)};
 const FLIPPED = PLAYER_SIDE==='black';
 let boardContext = {fen:INITIAL,myPieceCase:FLIPPED?'toLowerCase':'toUpperCase',isMyTurnNow:!FLIPPED,flipBoard:FLIPPED,viewOnly:false};
@@ -75,7 +78,7 @@ function inconsistentTurn(name){
     phase.completedAt=Math.round(performance.now());syncPhase=null;publish();},300);
 }
 window.addEventListener('message',event=>{
-  if(event.source!==window||event.data?.type!=='xiangqi-assistant:read:v2')return;
+  if(event.source!==window||event.data?.type!=='xiangqi-assistant:read:v3')return;
   if(syncPhase)syncPhase.reads++;
   if(ackPhase)ackPhase.reads++;
   if(tree&&tree.host.return!==tree.providers[tree.current])staleReturnReads++;
@@ -114,7 +117,7 @@ function opponentMove(){
   const row=PLAYER_SIDE==='red'?3:6,targetRow=PLAYER_SIDE==='red'?4:5,pawn=PLAYER_SIDE==='red'?'p':'P';
   const move=options.find(uci=>cells[row][uci.charCodeAt(0)-97]===pawn&&!cells[targetRow][uci.charCodeAt(0)-97]);
   if(!move)throw new Error('No fixture opponent pawn move');
-  applyMove(move);if(!ACK_SCENARIO)inconsistentTurn('after-opponent-move');
+  applyMove(move);if(!ACK_SCENARIO&&!BACKGROUND_SCENARIO)inconsistentTurn('after-opponent-move');
 }
 function destination(row,column){
   if(!selected)return;
@@ -122,7 +125,7 @@ function destination(row,column){
   if(ackPhase||game.gamePlayData.turnNow!==PLAYER_SIDE||!boardContext.isMyTurnNow){rejectedOwnInputs++;selected=null;publish();return;}
   const from=selected;selected=null;
   const uci=square(from.r,from.c)+square(row,column);
-  ownMoves.push({uci,beforeFen:game.gamePlayData.currentFen,acceptedAt:Math.round(performance.now())});
+  ownMoves.push({uci,beforeFen:game.gamePlayData.currentFen,acceptedAt:Math.round(performance.now()),visibilityState:document.visibilityState});
   applyMove(uci,ACK_SCENARIO?900:0,()=>{
     if(ACK_SCENARIO&&ownMoves.length===1)setTimeout(opponentMove,450);
   });
@@ -179,18 +182,39 @@ async function configureWorker(worker,forceWasm){
 async function main() {
   const profile = await fs.mkdtemp(path.join(tempRoot, 'xiangqi-mv3-smoke-'));
   let context;
+  let browser;
+  let browserProcess;
   let page;
   const errors = [];
   try {
     const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || chromium.executablePath();
-    context = await chromium.launchPersistentContext(profile, {
-      channel: 'chromium', executablePath, headless: true, viewport: {width: 1280, height: 900},
-      args: ['--disable-extensions-except=' + extension, '--load-extension=' + extension],
-    });
+    if(backgroundScenario){
+      // Playwright's normal launch forces focus emulation, keeping every page "visible".
+      // Attach without those overrides to exercise real tab and window visibility.
+      browserProcess=spawn(executablePath,['--user-data-dir='+profile,'--remote-debugging-port=0','--no-first-run',
+        '--no-default-browser-check','--disable-background-networking','--disable-extensions-except='+extension,'--load-extension='+extension,'about:blank'],
+        {windowsHide:true,stdio:'ignore'});
+      const portFile=path.join(profile,'DevToolsActivePort');
+      let port;
+      for(let attempt=0;attempt<100;attempt++){
+        try{port=Number((await fs.readFile(portFile,'utf8')).split('\n')[0]);if(port)break;}catch{}
+        await new Promise(resolve=>setTimeout(resolve,100));
+      }
+      assert.ok(port,'Isolated browser must publish its debugging port');
+      browser=await chromium.connectOverCDP('http://127.0.0.1:'+port,{noDefaults:true});
+      context=browser.contexts()[0];
+    }else{
+      context = await chromium.launchPersistentContext(profile, {
+        channel: 'chromium', executablePath, headless: true, viewport: {width: 1280, height: 900},
+        args: ['--disable-extensions-except=' + extension, '--load-extension=' + extension],
+      });
+    }
     await context.route('https://play.xiangqi.com/**', route => route.fulfill({status:200,contentType:'text/html; charset=utf-8',body:fixture}));
     page = context.pages()[0] || await context.newPage();
+    if(backgroundScenario)await page.setViewportSize({width:1280,height:900});
     page.on('pageerror', error => errors.push(error.message));
-    let worker = context.serviceWorkers()[0] || await context.waitForEvent('serviceworker', {timeout:20000});
+    const isExtensionWorker=candidate=>/^chrome-extension:\/\/[^/]+\/background\.js$/.test(candidate.url());
+    let worker = context.serviceWorkers().find(isExtensionWorker) || await context.waitForEvent('serviceworker', {predicate:isExtensionWorker,timeout:20000});
     const forceWasm = process.env.XQ_FORCE_WASM === '1';
     await configureWorker(worker,forceWasm);
     await page.goto('https://play.xiangqi.com/computer', {waitUntil:'load'});
@@ -223,8 +247,19 @@ async function main() {
     const contextsBefore = await worker.evaluate(() => chrome.runtime.getContexts({contextTypes:['OFFSCREEN_DOCUMENT']}));
     assert.equal(contextsBefore.length,1,'The real extension must create its offscreen engine document');
     let reload;
+    let background;
     let documentNavigations;
     if(reloadScenario){
+      // Modern Chromium disables command-line unpacked extensions on reload
+      // unless developer mode is also enabled in this isolated test profile.
+      const management=await context.newPage();
+      await management.goto('chrome://extensions');
+      const developerMode=management.locator('extensions-toolbar #devMode');
+      await developerMode.waitFor({state:'visible'});
+      if(!(await developerMode.evaluate(element=>element.checked)))await developerMode.click();
+      assert.equal(await developerMode.evaluate(element=>element.checked),true);
+      await management.close();
+      await page.bringToFront();
       await page.locator('#xq-quick-hands').getByRole('button',{name:'走一步',exact:true}).click();
       await page.waitForFunction(()=>document.getElementById('xq-quick-hands')?.shadowRoot.getElementById('status').textContent==='本步已完成',null,{timeout:15000});
       await page.evaluate(()=>opponentMove());
@@ -280,7 +315,7 @@ async function main() {
       await oldPanel.dispose();
     }
     const started = Date.now();
-    if(syncScenario||ackScenario){
+    if(syncScenario||ackScenario||backgroundScenario){
       await page.evaluate(()=>{
         const panel=document.getElementById('xq-quick-hands').shadowRoot;
         window.smokeAutoplay={startClicks:0,searches:[]};
@@ -292,9 +327,50 @@ async function main() {
         }).observe(panel.getElementById('depth'),{childList:true,characterData:true,subtree:true});
       });
       await page.locator('#xq-quick-hands').getByRole('button',{name:'开始自动',exact:true}).click();
-      await page.waitForFunction(()=>window.smokeFixture?.ownMoves.length===2&&window.smokeAutoplay.searches.length===2&&
-        !window.smokeFixture.syncPhase&&!window.smokeFixture.ackPhase,null,{timeout:25000});
-      await page.waitForTimeout(600);
+      if(backgroundScenario){
+        const cdp=await context.newCDPSession(page);
+        const target=await cdp.send('Target.getTargetInfo');
+        const windowInfo=await cdp.send('Browser.getWindowForTarget',{targetId:target.targetInfo.targetId});
+        const otherPage=await context.newPage();
+        await otherPage.setContent('<!doctype html><title>Foreground fixture</title><h1>Background execution check</h1>');
+        await otherPage.bringToFront();
+        await cdp.send('Browser.setWindowBounds',{windowId:windowInfo.windowId,bounds:{windowState:'minimized'}});
+        await page.waitForFunction(()=>document.visibilityState==='hidden',null,{polling:100,timeout:10000});
+        const minimized=await cdp.send('Browser.getWindowBounds',{windowId:windowInfo.windowId});
+        assert.equal(minimized.bounds.windowState,'minimized','The isolated browser window must actually be minimized');
+        const hiddenState=await page.evaluate(()=>({visibilityState:document.visibilityState,hidden:document.hidden}));
+        await page.waitForFunction(()=>window.smokeFixture?.ownMoves.length===1&&window.smokeAutoplay.searches.length===1,null,{polling:100,timeout:18000});
+        await page.evaluate(()=>opponentMove());
+        await page.waitForFunction(()=>window.smokeFixture?.ownMoves.length===2&&window.smokeAutoplay.searches.length===2,null,{polling:100,timeout:18000});
+        const continuous=await page.evaluate(()=>({startClicks:window.smokeAutoplay.startClicks,visibilityState:document.visibilityState,searches:[...window.smokeAutoplay.searches],ownMoves:[...window.smokeFixture.ownMoves]}));
+        assert.equal(continuous.startClicks,1,'Two background moves must follow one start click');
+        assert.equal(continuous.visibilityState,'hidden');
+        assert.ok(continuous.ownMoves.every(move=>move.visibilityState==='hidden'),'Both destination clicks must occur in a genuinely hidden document');
+        await page.evaluate(()=>document.getElementById('xq-quick-hands').shadowRoot.getElementById('quick-stop').click());
+        await page.evaluate(()=>opponentMove());
+        await page.waitForTimeout(1300);
+        const paused=await page.evaluate(()=>({ownMoves:window.smokeFixture.ownMoves.length,button:document.getElementById('xq-quick-hands').shadowRoot.getElementById('auto').textContent}));
+        assert.equal(paused.ownMoves,2,'Manual pause must stop background moves');
+        assert.match(paused.button,/开始自动/);
+        await page.evaluate(()=>{
+          const modal=document.createElement('div');modal.id='blocking-modal';modal.setAttribute('role','dialog');modal.setAttribute('aria-modal','true');
+          modal.style.cssText='position:fixed;inset:0;background:#fff9;z-index:2147483646';modal.textContent='Local fixture blocking dialog';document.body.append(modal);
+          document.getElementById('xq-quick-hands').shadowRoot.getElementById('auto').click();
+        });
+        await page.waitForFunction(()=>{
+          const root=document.getElementById('xq-quick-hands').shadowRoot;
+          return /弹窗遮挡/.test(root.getElementById('status').textContent)&&/开始自动/.test(root.getElementById('auto').textContent);
+        },null,{polling:100,timeout:18000});
+        const modal=await page.evaluate(()=>({status:document.getElementById('xq-quick-hands').shadowRoot.getElementById('status').textContent,ownMoves:window.smokeFixture.ownMoves.length,visibilityState:document.visibilityState}));
+        assert.equal(modal.ownMoves,2,'A webpage modal must still prevent background destination input');
+        background={hiddenState,windowState:minimized.bounds.windowState,continuous,paused,modal};
+        await cdp.send('Browser.setWindowBounds',{windowId:windowInfo.windowId,bounds:{windowState:'normal'}});
+        await page.bringToFront();
+      }else{
+        await page.waitForFunction(()=>window.smokeFixture?.ownMoves.length===2&&window.smokeAutoplay.searches.length===2&&
+          !window.smokeFixture.syncPhase&&!window.smokeFixture.ackPhase,null,{timeout:25000});
+        await page.waitForTimeout(600);
+      }
     }else{
       await page.locator('#xq-quick-hands').getByRole('button',{name:'走一步',exact:true}).click();
       await page.waitForFunction(() => {
@@ -308,19 +384,25 @@ async function main() {
       return Object.fromEntries(['engine-name','status','move','depth','score','elapsed','importance','allocated','pv'].map(id=>[id,root.getElementById(id).textContent]));
     });
     const boardState = JSON.parse(await page.locator('#fixture-state').textContent());
-    const autoplay=syncScenario||ackScenario?await page.evaluate(()=>({...window.smokeAutoplay,
+    const autoplay=syncScenario||ackScenario||backgroundScenario?await page.evaluate(()=>({...window.smokeAutoplay,
       button:document.getElementById('xq-quick-hands').shadowRoot.getElementById('auto').textContent})):null;
     const messages = await worker.evaluate(() => globalThis.smokeObservedMessages);
     const analysis = messages.find(message=>message.type==='XQ_ANALYZE');
     assert.ok(analysis,'The real service worker must receive an analysis request');
     assert.equal(analysis.currentTabUrl,'https://play.xiangqi.com/computer-play');
     const initialPlies=playerSide==='black'?1:0;
-    assert.equal(boardState.moveCount,initialPlies+(syncScenario||reloadScenario||ackScenario?3:1));
-    assert.equal(boardState.lastMove,panel.move);
+    assert.equal(boardState.moveCount,initialPlies+(backgroundScenario?4:syncScenario||reloadScenario||ackScenario?3:1));
+    if(!backgroundScenario)assert.equal(boardState.lastMove,panel.move);
     assert.match(panel['engine-name'], /Pikafish.*NNUE/, 'The production extension must identify the verified Pikafish NNUE backend');
     assert.ok(Number(panel.depth.match(/\d+/)?.[0])>=6,'Real Pikafish search must finish at least six plies');
     assert.ok(panel.pv.includes(panel.move),'The displayed move must have a searched principal variation');
-    if(syncScenario||ackScenario){
+    if(backgroundScenario){
+      assert.equal(boardState.ownMoves.length,2);
+      assert.equal(boardState.ownInputAttempts,2);
+      assert.equal(boardState.rejectedOwnInputs,0);
+      assert.ok(background.continuous.searches.every(search=>search.depth>=6&&search.elapsedMs<5000));
+      assert.deepEqual(messages.filter(message=>message.type==='XQ_ANALYZE').map(message=>message.historyPlies),[initialPlies,initialPlies+2,initialPlies+4]);
+    }else if(syncScenario||ackScenario){
       assert.equal(autoplay.startClicks,1,'Autoplay must continue after one start click');
       assert.match(autoplay.button,/暂停自动/,'Transient updates must leave autoplay running');
       assert.equal(boardState.ownMoves.length,2);
@@ -359,12 +441,13 @@ async function main() {
     const report={ok:true,executablePath,manifestVersion:JSON.parse(await fs.readFile(path.join(extension,'manifest.json'),'utf8')).version,
       scenario:forceWasm?
         'real MV3 extension + missing native host + genuine Pikafish NNUE WASM fallback + SPA lobby-to-game + '+
-          (ackScenario?'one-click autoplay + '+playerSide+' side + flipped board when black + two 900ms delayed confirmations + shared React child and stale ancestors':
+          (backgroundScenario?'one-click autoplay through genuinely hidden tab + minimized isolated browser + two acknowledged moves + manual pause + blocked webpage modal':
+            ackScenario?'one-click autoplay + '+playerSide+' side + flipped board when black + two 900ms delayed confirmations + shared React child and stale ancestors':
             syncScenario?'one-click autoplay through 300ms inconsistent state updates and two acknowledged own moves':
             reloadScenario?'real runtime reload + preserved live chess document + fresh paused panel + acknowledged move':'fixture move acknowledgement'):
         'real MV3 extension + native messaging + official Pikafish NNUE + SPA lobby-to-game + fixture move acknowledgement',
       engine:startup.result,
-      elapsedMs:elapsed,panel,boardState,...(autoplay?{autoplay}:{}),...(reload?{reload}:{}),messages,offscreenContexts:contextsBefore,pageErrors:errors};
+      elapsedMs:elapsed,panel,boardState,...(autoplay?{autoplay}:{}),...(reload?{reload}:{}),...(background?{background}:{}),messages,offscreenContexts:contextsBefore,pageErrors:errors};
     await fs.writeFile(path.join(results,artifactPrefix+'.json'),JSON.stringify(report,null,2)+'\n');
     console.log(JSON.stringify(report,null,2));
   } catch(error) {
@@ -377,6 +460,8 @@ async function main() {
     throw error;
   } finally {
     await context?.close();
+    await browser?.close();
+    if(browserProcess&&browserProcess.exitCode===null)browserProcess.kill();
     if(path.dirname(profile)!==tempRoot || !path.basename(profile).startsWith('xiangqi-mv3-smoke-')) throw new Error('Refusing unexpected profile cleanup path');
     await fs.rm(profile,{recursive:true,force:true,maxRetries:5,retryDelay:300});
   }

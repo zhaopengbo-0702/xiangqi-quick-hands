@@ -42,7 +42,7 @@ function bridge(host) {
     return posts.slice(previous);
   };
   load();
-  return { window, posts, listeners, load, send, read: () => send('xiangqi-assistant:read:v2')[0]?.payload };
+  return { window, posts, listeners, load, send, read: () => send('xiangqi-assistant:read:v3')[0]?.payload };
 }
 
 test('bridge selects the committed host and parent alternates, not the DOM-attached old branch', () => {
@@ -116,24 +116,39 @@ test('bridge caps ancestor and sibling traversal and never searches unrelated ch
   assert.equal(bridge(host).read().gamePlayData.moveCount, 8);
 });
 
-test('V2 protocol ignores the legacy channel and reinjection keeps exactly one removable listener', () => {
+test('V3 protocol ignores the legacy channel and reinjection keeps exactly one removable listener', () => {
   const roots = rootPair();
   const host = { memoizedProps: gameProps(8), return: roots.b };
   roots.b.child = host;
   const fixture = bridge(host);
   fixture.window.__xiangqiAssistantBridgeV1 = true;
   assert.equal(fixture.send('xiangqi-assistant:read').length, 0);
+  assert.equal(fixture.send('xiangqi-assistant:read:v2').length, 0);
   assert.equal(fixture.read().gamePlayData.moveCount, 8);
-  assert.equal(fixture.posts[0].type, 'xiangqi-assistant:state:v2');
+  assert.equal(fixture.posts[0].type, 'xiangqi-assistant:state:v3');
   fixture.load();
   assert.equal(fixture.listeners.size, 1);
-  const oldInstance = fixture.window.__xiangqiAssistantBridgeV2;
+  const oldInstance = fixture.window.__xiangqiAssistantBridgeV3;
   oldInstance.destroy();
   assert.equal(oldInstance.isAlive(), false);
   assert.equal(fixture.listeners.size, 0);
-  assert.equal(fixture.send('xiangqi-assistant:read:v2').length, 0);
+  assert.equal(fixture.send('xiangqi-assistant:read:v3').length, 0);
   fixture.load();
   assert.equal(fixture.listeners.size, 1);
   assert.equal(fixture.read().gamePlayData.moveCount, 8);
-  assert.notEqual(fixture.window.__xiangqiAssistantBridgeV2, oldInstance);
+  assert.notEqual(fixture.window.__xiangqiAssistantBridgeV3, oldInstance);
+});
+
+test('V3 removes a surviving V2 bridge when updating an already-open puzzle page', () => {
+  const roots = rootPair();
+  const host = { memoizedProps: gameProps(0), return: roots.b };
+  roots.b.child = host;
+  const fixture = bridge(host);
+  fixture.window.__xiangqiAssistantBridgeV3.destroy();
+  let disposed = false;
+  fixture.window.__xiangqiAssistantBridgeV2 = { version: 2, isAlive: () => true, destroy() { disposed = true; } };
+  fixture.load();
+  assert.equal(disposed, true);
+  assert.equal(fixture.window.__xiangqiAssistantBridgeV3.version, 3);
+  assert.equal(fixture.read().gamePlayData.moveCount, 0);
 });

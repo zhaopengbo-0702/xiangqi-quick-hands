@@ -9,6 +9,24 @@ let readyPromise;
 let active;
 let waiters = [];
 let engineMetadata;
+let backgroundPulseTimer = null;
+let heartbeatPending = false;
+
+function setBackgroundPulse(enabled) {
+  if (!enabled) {
+    clearInterval(backgroundPulseTimer);
+    backgroundPulseTimer = null;
+    return { enabled: false };
+  }
+  if (backgroundPulseTimer === null) backgroundPulseTimer = setInterval(() => {
+    if (heartbeatPending) return;
+    heartbeatPending = true;
+    Promise.resolve().then(() => chrome.runtime.sendMessage({ target: 'background', type: 'XQ_BACKGROUND_HEARTBEAT' }))
+      .catch(() => {})
+      .finally(() => { heartbeatPending = false; });
+  }, 100);
+  return { enabled: true };
+}
 
 function validateFen(fen) {
   if (typeof fen !== 'string' || fen.length > 180) throw new Error('Invalid Xiangqi FEN.');
@@ -384,6 +402,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'XQ_ENGINE_WARMUP') operation = warmup;
   else if (message.type === 'XQ_ENGINE_ANALYZE') operation = () => analyze(message.options);
   else if (message.type === 'XQ_ENGINE_CANCEL') operation = cancel;
+  else if (message.type === 'XQ_ENGINE_PULSE') operation = () => setBackgroundPulse(message.enabled === true);
   else return;
   Promise.resolve().then(operation).then(
     (result) => sendResponse({ok: true, result}),

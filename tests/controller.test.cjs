@@ -48,18 +48,77 @@ async function controller(initial = {}, options = {}) {
   const warmups = [];
   const storageWrites = [];
   const plays = [];
+  const viewport = { innerWidth: options.viewport?.width ?? 1280, innerHeight: options.viewport?.height ?? 800 };
   let readError = options.adapterError || null;
   let state = { fen: START, mode: 'computer', participant: true, playerSide: 'red', turn: 'red', active: true, historyMode: false, gameKey: 'game:original', boardKey: 'game:opening', moveCount: 0, ...initial };
-  const makeElement = () => ({ style: {}, dataset: {}, classList: classList(), disabled: false, textContent: '', innerHTML: '', value: '', hidden: false });
+  function eventTarget(target, observedListeners) {
+    const callbacks = new Map();
+    target.addEventListener = (name, callback) => {
+      if (!callbacks.has(name)) callbacks.set(name, new Set());
+      callbacks.get(name).add(callback);
+      if (observedListeners) observedListeners[name] = event => target.dispatchEvent({ ...event, type: name });
+    };
+    target.removeEventListener = (name, callback) => {
+      callbacks.get(name)?.delete(callback);
+      if (!callbacks.get(name)?.size && observedListeners) delete observedListeners[name];
+    };
+    target.dispatchEvent = event => {
+      event.target ||= target;
+      event.currentTarget = target;
+      event.preventDefault ||= () => { event.defaultPrevented = true; };
+      event.stopPropagation ||= () => {};
+      target['on' + event.type]?.(event);
+      for (const callback of [...(callbacks.get(event.type) || [])]) callback(event);
+      return !event.defaultPrevented;
+    };
+    return target;
+  }
+  function makeElement(id = '', tagName = 'DIV') {
+    const capturedPointers = new Set();
+    const style = {
+      setProperty(name, value) { this[name] = value; },
+      getPropertyValue(name) { return this[name] || ''; },
+      removeProperty(name) { const old = this[name] || ''; delete this[name]; return old; },
+    };
+    const element = eventTarget({ id, tagName, style, dataset: {}, classList: classList(), disabled: false, textContent: '', innerHTML: '', value: '', hidden: false });
+    element.closest = selector => selector.toLowerCase() === tagName.toLowerCase() ? element : element.parentElement?.closest(selector) || null;
+    element.setPointerCapture = pointerId => capturedPointers.add(pointerId);
+    element.releasePointerCapture = pointerId => capturedPointers.delete(pointerId);
+    element.hasPointerCapture = pointerId => capturedPointers.has(pointerId);
+    element.getBoundingClientRect = () => {
+      const width = Number.parseFloat(style.width) || Number.parseFloat(host?.style.width) || 300;
+      const headerHeight = viewport.innerWidth <= 560 ? 42 : 48;
+      const collapsed = elements.get('body')?.classList.contains('hidden');
+      const height = id === 'panel-header' || collapsed ? headerHeight : Number.parseFloat(style.height) || Number.parseFloat(host?.style.height) || 400;
+      const left = Number.parseFloat(host?.style.left);
+      const top = Number.parseFloat(host?.style.top);
+      const x = Number.isFinite(left) ? left : viewport.innerWidth - 16 - width;
+      const y = Number.isFinite(top) ? top : viewport.innerHeight - 16 - height;
+      return { x, y, left: x, top: y, width, height, right: x + width, bottom: y + height, toJSON() { return { x, y, width, height }; } };
+    };
+    Object.defineProperties(element, {
+      clientWidth: { get: () => element.getBoundingClientRect().width },
+      clientHeight: { get: () => element.getBoundingClientRect().height },
+      offsetWidth: { get: () => element.getBoundingClientRect().width },
+      offsetHeight: { get: () => element.getBoundingClientRect().height },
+    });
+    return element;
+  }
   const createHost = () => {
     const hostElements = new Map();
     const shadow = {
       set innerHTML(value) {
         for (const [, id] of value.matchAll(/id="([^"]+)"/g)) {
-          const element = makeElement();
           const tag = value.match(new RegExp('<[^>]*\\bid="' + id + '"[^>]*>'))?.[0] || '';
+          const element = makeElement(id, tag.match(/^<([\w-]+)/)?.[1].toUpperCase() || 'DIV');
           element.disabled = /\bdisabled\b/.test(tag);
           hostElements.set(id, element);
+        }
+        const panel = hostElements.get('panel');
+        const header = hostElements.get('panel-header');
+        if (header) header.parentElement = panel;
+        for (const [id, element] of hostElements) {
+          if (id !== 'panel' && id !== 'panel-header') element.parentElement = ['quick-stop', 'reconnect', 'collapse'].includes(id) ? header : panel;
         }
         hostElements.get('budget').value = '3500';
         if (hostElements.has('mode')) hostElements.get('mode').value = 'adaptive';
@@ -74,17 +133,15 @@ async function controller(initial = {}, options = {}) {
     elements = hostElements;
     return next;
   };
-  const removeListener = (name, callback) => { if (listeners[name] === callback) delete listeners[name]; };
-  const document = {
+  const document = eventTarget({
     hidden: false,
     createElement: createHost,
     getElementById: id => hosts.find(element => element.isConnected && element.id === id) || null,
     querySelector: selector => selector === '#xq-quick-hands' ? document.getElementById('xq-quick-hands') : null,
     querySelectorAll: selector => selector === '#xq-quick-hands' ? hosts.filter(element => element.isConnected && element.id === 'xq-quick-hands') : [],
     documentElement: { append(element) { element.isConnected = true; } },
-    addEventListener: (name, callback) => { listeners[name] = callback; },
-    removeEventListener: removeListener,
-  };
+  }, listeners);
+  const window = eventTarget(viewport, listeners);
   const location = { origin: 'https://play.xiangqi.com', pathname: options.pathname || '/computer-play', reload() { reloadCount++; } };
   const invalidated = () => new Error('Extension context invalidated.');
   const runtime = {
@@ -92,11 +149,12 @@ async function controller(initial = {}, options = {}) {
     getURL: file => { if (runtimeFaults.getURL) throw invalidated(); return `chrome-extension://test-extension/${file}`; },
     onMessage: {
       addListener(callback) { runtimeListeners.add(callback); listeners.runtime = callback; },
-      removeListener(callback) { runtimeListeners.delete(callback); removeListener('runtime', callback); },
+      removeListener(callback) { runtimeListeners.delete(callback); if (listeners.runtime === callback) delete listeners.runtime; },
     },
     async sendMessage(message) {
       calls.push(message);
       if (runtimeFaults.sendMessage) throw invalidated();
+      if (message.type === 'XQ_BACKGROUND') return options.backgroundReply ? options.backgroundReply(message) : { ok: true };
       if (message.type === 'XQ_WARMUP') {
         if (options.deferInitialWarmup || (options.deferRewarm && calls.some(call => call.type === 'XQ_CANCEL'))) {
           const warmup = deferred();
@@ -113,7 +171,7 @@ async function controller(initial = {}, options = {}) {
   };
   const context = vm.createContext({
     console, document, location,
-    window: { addEventListener: (name, callback) => { listeners[name] = callback; }, removeEventListener: removeListener },
+    window,
     chrome: { runtime, storage: { local: {
       get: async defaults => { if (runtimeFaults.storage) throw invalidated(); return { ...defaults, ...(options.savedSettings || {}) }; },
       set: async settings => { if (runtimeFaults.storage) throw invalidated(); storageWrites.push(settings); },
@@ -778,14 +836,133 @@ test('a new computer game on the same route cannot inherit automatic play', asyn
   assert.equal(app.searches.length, 0);
 });
 
-test('hiding the tab immediately cancels an active search', async () => {
+test('hiding the tab preserves the explicitly started search and its deadline', async () => {
   const app = await controller();
   await app.click('single');
   app.document.hidden = true;
   app.listeners.visibilitychange();
   await app.resolveSearch();
+  assert.equal(app.plays.length, 1);
+  assert.equal(app.calls.filter(call => call.type === 'XQ_CANCEL').length, 0);
+  const subscriptions = app.calls.filter(call => call.type === 'XQ_BACKGROUND');
+  assert.deepEqual(subscriptions.map(call => call.active), [true, false]);
+  assert.equal(subscriptions[0].sessionId, subscriptions[1].sessionId);
+});
+
+test('background pulses only advance an explicitly active session and cannot restart a paused panel', async () => {
+  const app = await controller({ turn: 'black' });
+  app.document.hidden = true;
+  await app.click('auto');
+  const subscription = app.calls.find(call => call.type === 'XQ_BACKGROUND' && call.active);
+  assert.ok(subscription);
+  app.setState({ turn: 'red' });
+  const replies = [];
+  for (const sender of [{ id: 'foreign' }, { id: 'test-extension', tab: { id: 1 } }]) {
+    for (const callback of app.runtimeListeners) callback({ type: 'XQ_BACKGROUND_PULSE', sessionId: subscription.sessionId }, sender, reply => replies.push(reply));
+  }
+  assert.equal(replies.length, 0);
+  assert.equal(app.searches.length, 0);
+  for (const callback of app.runtimeListeners) callback({ type: 'XQ_BACKGROUND_PULSE', sessionId: 'stale-session' }, { id: 'test-extension' }, reply => replies.push(reply));
+  assert.equal(replies.length, 0);
+  for (let i = 0; i < 3; i++) for (const callback of app.runtimeListeners) callback({ type: 'XQ_BACKGROUND_PULSE', sessionId: subscription.sessionId }, { id: 'test-extension' }, reply => replies.push(reply));
+  await flush();
+  assert.equal(app.searches.length, 1);
+  assert.ok(replies.every(reply => reply.active));
+  await app.click('auto');
+  await app.resolveSearch();
+  for (const callback of app.runtimeListeners) callback({ type: 'XQ_BACKGROUND_PULSE', sessionId: subscription.sessionId }, { id: 'test-extension' }, reply => replies.push(reply));
+  await flush();
+  assert.equal(replies.at(-1).active, false);
   assert.equal(app.plays.length, 0);
-  assert.equal(app.calls.filter(call => call.type === 'XQ_CANCEL').length, 1);
+  assert.equal(app.searches.length, 1);
+});
+
+test('hidden sessions reject late engine results and unsubscribe on disposal', async () => {
+  const app = await controller();
+  app.document.hidden = true;
+  await app.click('single');
+  await app.advance(4500);
+  await app.resolveSearch();
+  assert.equal(app.plays.length, 0);
+  assert.match(app.elements.get('status').textContent, /超时/);
+  assert.equal(app.calls.filter(call => call.type === 'XQ_BACKGROUND').at(-1).active, false);
+  const waiting = await controller({ turn: 'black' });
+  await waiting.click('auto');
+  waiting.context.__xiangqiQuickHands.destroy();
+  await flush();
+  assert.equal(waiting.calls.filter(call => call.type === 'XQ_BACKGROUND').at(-1).active, false);
+  assert.equal(waiting.listeners.pointermove, undefined);
+  assert.equal(waiting.listeners.resize, undefined);
+});
+
+test('active sessions retry a failed or declined background subscription and renew acknowledged subscriptions', async () => {
+  for (const firstOutcome of ['failed', 'declined']) {
+    let activeRequests = 0;
+    const app = await controller({ turn: 'black' }, { backgroundReply: message => {
+      if (message.active && ++activeRequests === 1) {
+        if (firstOutcome === 'failed') throw new Error('Temporary service worker startup failure');
+        return { ok: true, active: false };
+      }
+      return { ok: true, active: message.active };
+    } });
+    await app.click('auto');
+    await app.advance(330);
+    assert.ok(activeRequests >= 2, firstOutcome);
+    const acknowledgedCount = activeRequests;
+    await app.advance(2200);
+    assert.ok(activeRequests > acknowledgedCount, 'acknowledged sessions still renew after two seconds');
+    assert.equal(app.searches.length, 0);
+    await app.click('auto');
+    const pausedCount = activeRequests;
+    await app.advance(5000);
+    assert.equal(activeRequests, pausedCount, 'paused sessions must not keep renewing');
+    assert.equal(app.elements.get('auto').classList.contains('running'), false);
+  }
+});
+
+test('a late background subscription acknowledgement cannot revive or suppress the next user session', async () => {
+  const gate = deferred();
+  let first = true;
+  const app = await controller({ turn: 'black' }, { backgroundReply: message => {
+    if (message.active && first) { first = false; return gate.promise; }
+    return { ok: true, active: message.active };
+  } });
+  await app.click('auto');
+  await app.click('auto');
+  await app.click('auto');
+  const before = app.calls.filter(call => call.type === 'XQ_BACKGROUND');
+  assert.deepEqual(before.map(call => call.active), [true, false, true]);
+  gate.resolve({ ok: true, active: false });
+  await flush();
+  await app.advance(110);
+  assert.equal(app.calls.filter(call => call.type === 'XQ_BACKGROUND').length, before.length);
+  assert.equal(app.elements.get('auto').classList.contains('running'), true);
+  assert.equal(app.searches.length, 0);
+});
+
+test('background status probes authenticate the extension and report activity without starting or resuming it', async () => {
+  const app = await controller({ turn: 'black' });
+  const replies = [];
+  const probe = sender => {
+    for (const callback of app.runtimeListeners) callback({ type: 'XQ_BACKGROUND_STATUS' }, sender, reply => replies.push(reply));
+  };
+  probe({ id: 'foreign' });
+  probe({ id: 'test-extension', tab: { id: 7 } });
+  assert.equal(replies.length, 0);
+  probe({ id: 'test-extension' });
+  assert.equal(replies.at(-1).active, false);
+  assert.ok(replies.at(-1).sessionId);
+  assert.equal(app.calls.filter(call => call.type === 'XQ_BACKGROUND').length, 0);
+  await app.click('auto');
+  probe({ id: 'test-extension' });
+  assert.equal(replies.at(-1).active, true);
+  await app.click('auto');
+  probe({ id: 'test-extension' });
+  assert.equal(replies.at(-1).active, false);
+  assert.equal(app.searches.length, 0);
+  app.location.pathname = '/settings';
+  probe({ id: 'test-extension' });
+  assert.equal(replies.at(-1).active, false);
 });
 
 test('history mode and completed games disable move controls', async () => {
@@ -795,6 +972,80 @@ test('history mode and completed games disable move controls', async () => {
   const ended = await controller({ active: false });
   assert.equal(ended.elements.get('single').disabled, true);
   assert.equal(ended.elements.get('auto').disabled, true);
+});
+
+test('analysis boards offer an explicit suggestion without enabling autoplay or dispatching a move', async () => {
+  for (const pathname of ['/analysis/board', '/review/game-one', '/note/view/note-one', '/lessons/notes/lesson-one', '/learn/rules', '/editor', '/game-database/example/en', '/watch/game-one']) {
+    const app = await controller({ mode: 'analysis', canAnalyze: true, participant: false, active: false, viewOnly: true }, { pathname });
+    assert.equal(app.elements.get('auto').disabled, true, pathname);
+    assert.equal(app.elements.get('single').disabled, false, pathname);
+    assert.match(app.elements.get('single').innerHTML, /分析局面/, pathname);
+    assert.equal(app.searches.length, 0, 'opening an analysis page must not start searching');
+    await app.click('single');
+    assert.equal(app.searches.length, 1, pathname);
+    await app.resolveSearch();
+    assert.equal(app.plays.length, 0, pathname);
+    assert.equal(app.elements.get('move').textContent, 'b1c3', pathname);
+    assert.match(app.elements.get('status').textContent, /分析完成.*未落子/, pathname);
+    await app.advance(220);
+    assert.equal(app.searches.length, 1, 'analysis is a one-shot request');
+    assert.equal(app.calls.filter(call => call.type === 'XQ_BACKGROUND').at(-1).active, false);
+  }
+});
+
+test('an analysis suggestion is discarded when the displayed position changes during search', async () => {
+  const app = await controller({ mode: 'analysis', canAnalyze: true, participant: false, active: false, viewOnly: true }, { pathname: '/analysis/board' });
+  await app.click('single');
+  app.setState({ boardKey: 'analysis:changed-position' });
+  await app.resolveSearch();
+  assert.equal(app.plays.length, 0);
+  assert.equal(app.elements.get('move').textContent, '');
+  assert.match(app.elements.get('status').textContent, /局面已变化/);
+});
+
+test('puzzle play can take an explicitly requested step while completed and rejected puzzles disable move controls', async () => {
+  for (const pathname of ['/puzzle/ordinary-one', '/puzzle/ordinary-one/P', '/puzzle/ordinary-one/C', '/puzzle/race/race-one']) {
+    const app = await controller({ mode: 'puzzle', puzzleRace: pathname.includes('/race/'), gameKey: 'puzzle:one', boardKey: 'puzzle:one:opening' }, { pathname });
+    assert.equal(app.elements.get('single').disabled, false, pathname);
+    assert.equal(app.searches.length, 0);
+    await app.click('single');
+    await app.resolveSearch();
+    assert.equal(app.plays.length, 1, pathname);
+  }
+  for (const state of [{ puzzleCompleted: true }, { puzzleWrong: true }]) {
+    const app = await controller({ mode: 'puzzle', active: false, ...state }, { pathname: '/puzzle/ordinary-one' });
+    assert.equal(app.elements.get('single').disabled, true);
+    assert.equal(app.elements.get('auto').disabled, true);
+    assert.equal(app.searches.length, 0);
+  }
+});
+
+test('a completed or rejected puzzle stops waiting autoplay and cannot continue into another step', async () => {
+  for (const endState of [{ puzzleCompleted: true }, { puzzleWrong: true }]) {
+    const app = await controller({ mode: 'puzzle', turn: 'black', gameKey: 'puzzle:one' }, { pathname: '/puzzle/ordinary-one/P' });
+    await app.click('auto');
+    app.setState({ ...endState, active: false, turn: 'red' });
+    await app.advance(110);
+    assert.equal(app.elements.get('auto').classList.contains('running'), false);
+    assert.equal(app.searches.length, 0);
+    assert.equal(app.calls.filter(call => call.type === 'XQ_BACKGROUND').at(-1).active, false);
+    app.setState({ puzzleCompleted: false, puzzleWrong: false, active: true });
+    await app.advance(220);
+    assert.equal(app.searches.length, 0, 'a puzzle result must require a new explicit start');
+  }
+});
+
+test('changing puzzle identity or navigating to the next puzzle cannot inherit autoplay', async () => {
+  for (const changedRoute of [false, true]) {
+    const app = await controller({ mode: 'puzzle', turn: 'black', gameKey: 'puzzle:one', boardKey: 'puzzle:one:opening' }, { pathname: '/puzzle/ordinary-one/P' });
+    await app.click('auto');
+    if (changedRoute) app.location.pathname = '/puzzle/ordinary-two/P';
+    app.setState({ gameKey: 'puzzle:two', boardKey: 'puzzle:two:opening', turn: 'red' });
+    await app.advance(110);
+    assert.equal(app.elements.get('auto').classList.contains('running'), false);
+    assert.equal(app.searches.length, 0);
+    assert.equal(app.plays.length, 0);
+  }
 });
 
 function background(options = {}) {
@@ -924,6 +1175,28 @@ test('background accepts analysis from the verified online game route', async ()
   assert.equal(app.calls[0].type, 'analyze');
   app.pending.resolve({ bestmove: 'b1c3' });
   assert.equal((await response).ok, true);
+});
+
+test('background authorizes verified puzzle and read-only board routes for engine suggestions', async () => {
+  for (const pathname of ['/puzzle/ordinary-one', '/puzzle/ordinary-one/P', '/puzzle/ordinary-one/C', '/puzzle/race/race-one', '/analysis/board', '/review/game-one', '/note/view/note-one', '/lessons/notes/lesson-one', '/learn/rules', '/editor', '/editor/position/analysis', '/game-database/example/en', '/watch/game-one']) {
+    const app = background();
+    const response = app.send({ type: 'XQ_ANALYZE', fen: START, requestId: 'site-board' }, {
+      ...app.sender, url: 'https://play.xiangqi.com' + pathname,
+    });
+    await flush();
+    assert.equal(app.calls[0]?.type, 'analyze', pathname);
+    app.pending.resolve({ bestmove: 'b1c3' });
+    assert.equal((await response).ok, true, pathname);
+  }
+});
+
+test('puzzle reserved pages and unknown modes cannot masquerade as puzzle boards', async () => {
+  for (const pathname of ['/puzzle', '/puzzle/custom', '/puzzle/stats', '/puzzle/record', '/puzzle/race', '/puzzle/stats/P', '/puzzle/custom/P', '/puzzle/record/C', '/puzzle/ordinary-one/unknown', '/puzzle/race/race-one/extra']) {
+    const app = background();
+    const sender = { ...app.sender, url: 'https://play.xiangqi.com' + pathname };
+    assert.equal((await app.send({ type: 'XQ_ANALYZE', fen: START, requestId: 'reserved-puzzle-route' }, sender)).ok, false, pathname);
+    assert.equal(app.calls.length, 0, pathname);
+  }
 });
 
 test('lobbies can prewarm the engine but cannot authorize analysis', async () => {

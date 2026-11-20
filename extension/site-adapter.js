@@ -31,6 +31,9 @@
   function routeMode(pathname) {
     if (pathname === "/computer-play") return "computer";
     if (pathname === "/play" || /^\/game\/[^/]+\/?$/.test(pathname)) return "online";
+    if (/^\/puzzle\/race\/[^/]+\/?$/.test(pathname) ||
+        /^\/puzzle\/(?!custom(?:\/|$)|stats(?:\/|$)|record(?:\/|$)|race(?:\/|$))[^/]+(?:\/[PC])?\/?$/.test(pathname)) return "puzzle";
+    if (pathname === "/analysis/board" || /^\/(review|note|lessons|learn|editor|game-database|watch)(?:\/|$)/.test(pathname)) return "analysis";
     return null;
   }
 
@@ -94,8 +97,8 @@
       "state-read-failed": "读取棋盘失败"
     };
     if (!raw || raw.error) throw new Error(messages[raw?.error] || "无法读取对局");
-    const mode = raw.mode === "online" ? "online" : "computer";
-    const participant = mode === "computer" ? raw.participant !== false : raw.participant === true;
+    const mode = ["online", "puzzle", "analysis"].includes(raw.mode) ? raw.mode : "computer";
+    const participant = mode === "analysis" ? false : mode === "computer" ? raw.participant !== false : raw.participant === true;
     const playerSide = ["red", "black"].includes(raw.playerSide) ? raw.playerSide : null;
     if (!playerSide && participant) throw new Error("无法识别我方执子");
     const data = raw.gamePlayData;
@@ -118,6 +121,8 @@
       completeMoves.every((move) => typeof move === "string" && /^([a-i])(10|[1-9])([a-i])(10|[1-9])$/.test(move)) ? [...completeMoves] : undefined;
     return {
       fen, initFen, moves, mode, participant, viewOnly, playerSide, turn, route,
+      canAnalyze: raw.canAnalyze === true || mode === "computer" || mode === "online",
+      puzzleCompleted: raw.puzzleCompleted === true, puzzleWrong: raw.puzzleWrong === true, puzzleRace: raw.puzzleRace === true,
       active: participant && !viewOnly && !raw.historyMode && data.state === 2 && data.endReason == null && !raw.loading &&
         !raw.hasPreMove && raw.connected !== false && (clockRemainingMs === null || clockRemainingMs > 0),
       historyMode: raw.historyMode === true,
@@ -136,16 +141,18 @@
   }
 
   class XiangqiSiteAdapter {
+    static routeMode(pathname) { return routeMode(pathname); }
     constructor(options = {}) {
       this.window = options.window || window;
       this.document = options.document || document;
+      this.delay = options.delay || (milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)));
       this.requestId = 0;
       this.pending = new Map();
       this.nonce = Array.from(this.window.crypto.getRandomValues(new Uint8Array(16)), (value) => value.toString(16).padStart(2, "0")).join("");
       this.onMessage = (event) => {
         if (event.source !== this.window || event.origin !== this.window.location.origin) return;
         const value = event.data;
-        if (!value || value.type !== "xiangqi-assistant:state:v2" || value.nonce !== this.nonce) return;
+        if (!value || value.type !== "xiangqi-assistant:state:v3" || value.nonce !== this.nonce) return;
         const pending = this.pending.get(value.requestId);
         if (!pending) return;
         this.pending.delete(value.requestId);
@@ -170,7 +177,7 @@
       const raw = await new Promise((resolve, reject) => {
         const timer = setTimeout(() => { this.pending.delete(requestId); reject(new Error("读取棋盘超时，请刷新页面")); }, remaining);
         this.pending.set(requestId, { resolve, reject, timer });
-        this.window.postMessage({ type: "xiangqi-assistant:read:v2", nonce: this.nonce, requestId }, this.window.location.origin);
+        this.window.postMessage({ type: "xiangqi-assistant:read:v3", nonce: this.nonce, requestId }, this.window.location.origin);
       });
       if (!raw?.error && raw?.mode !== routeMode(this.window.location.pathname)) throw new Error("对局类型已变化，请重新读取棋盘");
       if (!raw?.error && raw?.route !== this.window.location.pathname) throw new Error("对局页面已变化，停止落子");
@@ -185,7 +192,7 @@
       const board = this.document.querySelector("#game-grid");
       if (!board || board.querySelectorAll(".square").length !== 90) throw new Error("无法识别棋盘布局");
       const rect = board.getBoundingClientRect();
-      if (rect.width < 90 || rect.height < 100 || this.document.visibilityState === "hidden") throw new Error("请保持棋盘标签页可见");
+      if (rect.width < 90 || rect.height < 100) throw new Error("无法识别棋盘尺寸");
       return board;
     }
 
@@ -228,7 +235,7 @@
       if (!source) throw new Error("无法定位待走棋子");
       checkAction();
       if (!source.classList.contains("selected-piece")) this.clickTarget(source);
-      await new Promise((resolve) => setTimeout(resolve, 30));
+      await this.wait(30);
       checkAction();
       const beforeDestination = await this.read(options);
       checkAction();
@@ -247,18 +254,21 @@
         try { after = await this.read({ ...options, deadline: confirmationDeadline }); }
         catch (error) {
           if (error.code !== "XQ_STATE_SYNC") throw error;
-          await new Promise((resolve) => setTimeout(resolve, 35));
+          await this.wait(35);
           continue;
         }
         checkAction();
         if (after.gameKey !== initial.gameKey || after.historyMode) throw new Error("确认落子时对局已变化");
         if (after.moveCount > initial.moveCount && (after.fen.split(" ")[0] === predicted || after.recentPositions.some((entry) => entry.fen.split(" ")[0] === predicted))) return after;
         if (after.boardKey !== initial.boardKey) throw new Error("网站局面与预期不同，已停止");
-        await new Promise((resolve) => setTimeout(resolve, 35));
+        await this.wait(35);
         checkAction();
       }
       checkAction();
       throw new Error("网站未在时限内确认落子，已暂停，请检查棋盘");
+    }
+    wait(milliseconds) {
+      return this.delay ? this.delay(milliseconds) : new Promise(resolve => setTimeout(resolve, milliseconds));
     }
   }
 
