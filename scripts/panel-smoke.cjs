@@ -368,6 +368,100 @@ async function main() {
     });
     await panel.waitFor({ state: 'visible' }); assert.equal(await page.locator('#xq-quick-hands').count(), 1); await compact();
     checks.push('destroy-during-scaled-pointer-capture-and-reinject');
+
+    // Reuse the real content controller and its UI, replacing only the local
+    // fixture's board read and engine transport so every score case is repeatable.
+    await page.evaluate(() => history.pushState({}, '', '/analysis/board'));
+    await worker.evaluate(async () => {
+      const tabs = await chrome.tabs.query({ url: 'https://play.xiangqi.com/*' });
+      await chrome.scripting.executeScript({ target: { tabId: tabs[0].id }, world: 'ISOLATED', func: () => {
+        globalThis.__xiangqiQuickHands.destroy();
+        globalThis.XiangqiSiteAdapter.prototype.read = async () => ({
+          fen: 'rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1',
+          mode: 'analysis', canAnalyze: true, participant: false, active: false, viewOnly: true,
+          playerSide: 'red', turn: 'red', historyMode: false, gameKey: 'evaluation-fixture', boardKey: 'evaluation-fixture:opening', moveCount: 0,
+        });
+        const sendMessage = chrome.runtime.sendMessage.bind(chrome.runtime);
+        globalThis.panelSmokeScore = { type: 'cp', value: 100 };
+        chrome.runtime.sendMessage = async function(message, ...args) {
+          if (message.type === 'XQ_WARMUP') return { ok: true, engine: 'Local score fixture', backend: 'wasm', nnue: true };
+          if (message.type === 'XQ_ANALYZE') return { ok: true, bestmove: 'b1c3', depth: 12, score: globalThis.panelSmokeScore, pv: ['b1c3'] };
+          if (message.type === 'XQ_BACKGROUND') return { ok: true, active: message.active };
+          return sendMessage(message, ...args);
+        };
+      } });
+      await chrome.scripting.executeScript({ target: { tabId: tabs[0].id }, world: 'ISOLATED', files: ['content.js'] });
+    });
+    await page.waitForFunction(() => {
+      const root = document.getElementById('xq-quick-hands')?.shadowRoot;
+      return root && !root.getElementById('single').disabled;
+    });
+    assert.equal(await page.locator('#score').textContent(), '评估 -');
+    assert.equal(await page.locator('#score-meaning').textContent(), '暂无有效评估');
+    async function displayScore(score, expected, meaning) {
+      await worker.evaluate(async score => {
+        const tabs = await chrome.tabs.query({ url: 'https://play.xiangqi.com/*' });
+        await chrome.scripting.executeScript({ target: { tabId: tabs[0].id }, world: 'ISOLATED', args: [score], func: score => { globalThis.panelSmokeScore = score; } });
+      }, score);
+      await page.locator('#single').click();
+      await page.waitForFunction(expected => {
+        const root = document.getElementById('xq-quick-hands').shadowRoot;
+        return root.getElementById('score').textContent === expected && !root.getElementById('single').disabled;
+      }, expected);
+      assert.equal(await page.locator('#score').textContent(), expected);
+      assert.equal(await page.locator('#score-meaning').textContent(), meaning);
+      assert.equal(await page.locator('#score-raw').count(), 0, 'The old score field is absent');
+      if (score.type === 'cp') {
+        assert.match(expected, /^评估 [+-]?0\.\d{6}$/);
+        assert.notEqual(expected, '评估 ' + (score.value / 100).toFixed(2), 'The old raw score is absent from the evaluation');
+        assert.match(await page.locator('#score').getAttribute('title'), /tanh/);
+      }
+      observations.push({ name: 'normalized-evaluation', engineScore: score, expected, meaning });
+    }
+    for (const [value, expected, meaning] of [
+      [100, '评估 +0.905148', '稍优'],
+      [-104, '评估 -0.915420', '稍劣'],
+      [0, '评估 0.000000', '均势'],
+      [900, '评估 +0.999999', '接近胜势'],
+      [-900, '评估 -0.999999', '接近败势'],
+    ]) await displayScore({ type: 'cp', value }, expected, meaning);
+    checks.push('real-controller-normalized-positive-negative-zero-six-decimal-meaning-without-raw-score');
+    for (const [value, meaning] of [[3, '引擎发现强制杀棋'], [-3, '引擎发现对方强制杀棋']]) {
+      await displayScore({ type: 'mate', value }, '杀棋 ' + value, meaning);
+    }
+    checks.push('real-controller-preserves-explicit-positive-and-negative-mate');
+    async function scoreFits(name) {
+      const value = await page.evaluate(() => {
+        const root = document.getElementById('xq-quick-hands').shadowRoot;
+        const main = root.querySelector('main'), bounds = main.getBoundingClientRect();
+        return { mainWidth: main.clientWidth, contentWidth: main.scrollWidth,
+          lines: ['score', 'score-meaning'].flatMap(id => {
+            const node = root.getElementById(id), range = document.createRange(); range.selectNodeContents(node);
+            return [...range.getClientRects()].map(rect => ({ id, left: rect.left, right: rect.right, width: rect.width, height: rect.height }));
+          }), left: bounds.left, right: bounds.right };
+      });
+      assert.ok(value.contentWidth <= value.mainWidth + 1, name + ': evaluation creates no horizontal overflow');
+      assert.ok(value.lines.length >= 2 && value.lines.every(line => line.width > 0 && line.height > 0 && line.left >= value.left - 1 && line.right <= value.right + 1), name + ': both evaluation lines fit the main panel: ' + JSON.stringify(value));
+      observations.push({ name, evaluationGeometry: value });
+    }
+    await displayScore({ type: 'cp', value: -104 }, '评估 -0.915420', '稍劣');
+    await header.locator('strong').dblclick(); await waitScale(1);
+    await scoreFits('evaluation-100'); await compact(); await screenshot('panel-evaluation-100');
+    for (const target of [1.5, 2]) {
+      while ((await geometry()).scale < target - .01) await page.locator('#scale-up').click();
+      await waitScale(target); await scoreFits('evaluation-' + target * 100); await compact();
+      await screenshot('panel-evaluation-' + target * 100);
+    }
+    checks.push('normalized-evaluation-and-meaning-fit-normal-150-and-200-percent');
+    await page.setViewportSize({ width: 320, height: 280 });
+    await page.waitForFunction(() => {
+      const r = document.getElementById('xq-quick-hands').shadowRoot.getElementById('panel').getBoundingClientRect();
+      return r.right <= innerWidth + 1 && r.bottom <= innerHeight + 1;
+    });
+    await page.locator('#score-meaning').scrollIntoViewIfNeeded();
+    await scoreFits('evaluation-small-320x280'); await fits({ width: 320, height: 280 });
+    await screenshot('panel-evaluation-small-320x280');
+    checks.push('normalized-evaluation-and-meaning-fit-small-scrolling-panel');
     assert.deepEqual(errors, []);
     const report = { ok: true, manifestVersion, checks, checkCount: checks.length, observations, finalGeometry: await geometry(), savedLayout: await saved(), pageErrors: errors };
     await fs.writeFile(path.join(results, 'panel-resize.json'), JSON.stringify(report, null, 2) + '\n'); console.log(JSON.stringify(report, null, 2));

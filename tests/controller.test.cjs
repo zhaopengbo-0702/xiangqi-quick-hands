@@ -49,10 +49,12 @@ async function controller(initial = {}, options = {}) {
   const warmups = [];
   const storageWrites = [];
   const plays = [];
+  const confirmations = [];
   const playAttempts = [];
   const viewport = { innerWidth: options.viewport?.width ?? 1280, innerHeight: options.viewport?.height ?? 800 };
   let readError = options.adapterError || null;
   let deferRead = false;
+  let deferConfirmation = options.deferConfirmation === true;
   let playError = options.playError || null;
   let state = { fen: START, mode: 'computer', participant: true, playerSide: 'red', turn: 'red', active: true, historyMode: false, gameKey: 'game:original', boardKey: 'game:opening', moveCount: 0, ...initial };
   function eventTarget(target, observedListeners) {
@@ -202,6 +204,13 @@ async function controller(initial = {}, options = {}) {
         if (options.isCancelled()) throw new Error('Cancelled');
         playAttempts.push({ move, snapshot, options });
         if (playError) throw playError;
+        if (deferConfirmation) {
+          const confirmation = deferred();
+          confirmations.push(confirmation);
+          options.onStage?.('destination-dispatched');
+          await confirmation.promise;
+          if (options.isCancelled()) throw Object.assign(new Error('已取消落子'), { code: 'XQ_CANCELLED', actionStage: 'destination-dispatched' });
+        }
         plays.push({ move, snapshot, options });
         state = { ...state, turn: 'black', boardKey: 'game:after-player', moveCount: 1 };
       }
@@ -227,7 +236,7 @@ async function controller(initial = {}, options = {}) {
     get elements() { return elements; }, get host() { return host; },
     get readCount() { return readCount; }, get destroyCount() { return destroyCount; },
     get reloadCount() { return reloadCount; },
-    context, document, location, calls, reads, searches, warmups, plays, playAttempts, listeners, advance, storageWrites, hosts, timers, runtimeListeners,
+    context, document, location, calls, reads, searches, warmups, plays, confirmations, playAttempts, listeners, advance, storageWrites, hosts, timers, runtimeListeners,
     setState: next => { state = { ...state, ...next }; },
     setReadError: error => { readError = error; },
     deferNextRead: () => { deferRead = true; },
@@ -910,6 +919,109 @@ test('adaptive result displays importance and its allocated compute budget', asy
   assert.ok(app.elements.get('importance').title.length > 0);
 });
 
+test('evaluation presents only a signed six-decimal tanh index and a plain-language meaning', async () => {
+  for (const [value, expectedIndex, meaning] of [
+    [10, '+0.148885', '均势'],
+    [20, '+0.291313', '均势'],
+    [100, '+0.905148', '稍优'],
+    [-104, '-0.915420', '稍劣'],
+    [0, '0.000000', '均势'],
+    [-0, '0.000000', '均势'],
+  ]) {
+    const app = await controller();
+    await app.click('single');
+    await app.resolveSearch(0, { score: { type: 'cp', value } });
+    assert.equal(app.elements.get('score').textContent, `评估 ${expectedIndex}`);
+    assert.equal(app.elements.has('score-raw'), false, 'The panel omits the old score');
+    assert.equal(app.elements.get('score-meaning').textContent, meaning);
+    assert.match(app.elements.get('score').title, /tanh/);
+    assert.match(app.elements.get('score').title, /胜率/);
+    assert.equal(app.plays.length, 1, 'Display conversion preserves normal move execution');
+  }
+});
+
+test('evaluation categories change at documented raw-score boundaries in both directions', async () => {
+  for (const [magnitude, positive, negative] of [
+    [49, '均势', '均势'],
+    [50, '稍优', '稍劣'],
+    [149, '稍优', '稍劣'],
+    [150, '明显优势', '明显劣势'],
+    [299, '明显优势', '明显劣势'],
+    [300, '大幅优势', '大幅劣势'],
+    [599, '大幅优势', '大幅劣势'],
+    [600, '接近胜势', '接近败势'],
+  ]) {
+    for (const [value, expected] of [[magnitude, positive], [-magnitude, negative]]) {
+      const app = await controller();
+      await app.click('single');
+      await app.resolveSearch(0, { score: { type: 'cp', value } });
+      assert.equal(app.elements.get('score-meaning').textContent, expected, `Raw score ${value}`);
+    }
+  }
+});
+
+test('normalized evaluation stays monotone, symmetric, and strictly inside the displayed endpoints', async () => {
+  let previous = -1;
+  const displayed = new Map();
+  for (const value of [-Number.MAX_VALUE, -900, -300, -100, -50, -20, -10, -1, 0, 1, 10, 20, 50, 100, 300, 900, Number.MAX_VALUE]) {
+    const app = await controller();
+    await app.click('single');
+    await app.resolveSearch(0, { score: { type: 'cp', value } });
+    const text = app.elements.get('score').textContent;
+    assert.match(text, /^评估 [+-]?0\.\d{6}$/);
+    const index = Number(text.slice('评估 '.length));
+    assert.ok(index > -1 && index < 1, `Finite scores never display a certain endpoint: ${value}`);
+    assert.ok(index >= previous, `Greater engine scores never produce smaller displayed indices: ${value}`);
+    displayed.set(value, index);
+    previous = index;
+  }
+  for (const magnitude of [1, 10, 20, 50, 100, 300, 900, Number.MAX_VALUE]) {
+    assert.equal(displayed.get(-magnitude), -displayed.get(magnitude));
+  }
+  assert.equal(displayed.get(Number.MAX_VALUE), .999999);
+  assert.equal(displayed.get(-Number.MAX_VALUE), -.999999);
+});
+
+test('evaluation keeps the searching side perspective for either player color', async () => {
+  for (const side of ['red', 'black']) {
+    const app = await controller({ turn: side, playerSide: side });
+    await app.click('single');
+    await app.resolveSearch(0, { score: { type: 'cp', value: -300 } });
+    assert.equal(app.elements.get('score').textContent, '评估 -0.999753');
+    assert.equal(app.elements.get('score-meaning').textContent, '大幅劣势');
+  }
+});
+
+test('missing and invalid engine evaluations display placeholders instead of fabricated indices', async () => {
+  const initial = await controller();
+  assert.equal(initial.elements.get('score').textContent, '评估 -');
+  assert.equal(initial.elements.get('score-meaning').textContent, '暂无有效评估');
+  for (const score of [undefined, null, {}, { type: 'cp' },
+    { type: 'cp', value: NaN }, { type: 'cp', value: Infinity }, { type: 'cp', value: -Infinity },
+    { type: 'cp', value: '100' }, { type: 'unknown', value: 100 },
+    { type: 'mate', value: Infinity }, { type: 'mate', value: NaN }]) {
+    const app = await controller();
+    await app.click('single');
+    await app.resolveSearch(0, { score });
+    assert.equal(app.elements.get('score').textContent, '评估 -');
+    assert.equal(app.elements.get('score-meaning').textContent, '暂无有效评估');
+  }
+});
+
+test('mate results remain explicit and separate from finite normalized evaluations', async () => {
+  for (const [value, meaning] of [
+    [3, '引擎发现强制杀棋'],
+    [-3, '引擎发现对方强制杀棋'],
+    [0, '引擎报告终局杀棋'],
+  ]) {
+    const app = await controller();
+    await app.click('single');
+    await app.resolveSearch(0, { score: { type: 'mate', value } });
+    assert.equal(app.elements.get('score').textContent, `杀棋 ${value}`);
+    assert.equal(app.elements.get('score-meaning').textContent, meaning);
+  }
+});
+
 test('pausing cancels the search and discards a late engine response', async () => {
   const app = await controller();
   await app.click('auto');
@@ -944,6 +1056,8 @@ test('shallow searches stop without moving unless they prove a positive mate', a
   await knownMate.click('single');
   await knownMate.resolveSearch(0, { depth: 1, score: { type: 'mate', value: 2 } });
   assert.equal(knownMate.plays.length, 1);
+  assert.equal(knownMate.elements.get('score').textContent, '杀棋 2');
+  assert.equal(knownMate.elements.get('score-meaning').textContent, '引擎发现强制杀棋');
 
   const losingMate = await controller();
   await losingMate.click('single');
@@ -1107,6 +1221,47 @@ test('the five-second watchdog cancels a hung engine without moving', async () =
   assert.equal(app.elements.get('dot').dataset.kind, 'error');
   await app.resolveSearch();
   assert.equal(app.plays.length, 0);
+});
+
+test('a dispatched destination waits beyond the action deadline without pausing, cancelling or starting another move', async () => {
+  const app = await controller({}, { deferConfirmation: true });
+  await app.click('auto');
+  await app.resolveSearch();
+  assert.equal(app.confirmations.length, 1);
+  assert.match(app.elements.get('status').textContent, /等待网站确认/);
+  await app.advance(15000);
+  assert.equal(app.elements.get('auto').classList.contains('running'), true);
+  assert.equal(app.elements.get('stop-reason').classList.contains('hidden'), true);
+  assert.equal(app.searches.length, 1);
+  assert.equal(app.playAttempts.length, 1);
+  assert.equal(app.calls.some(call => call.type === 'XQ_CANCEL'), false);
+  app.confirmations[0].resolve();
+  await flush();
+  await app.advance(110);
+  assert.equal(app.plays.length, 1);
+  assert.match(app.elements.get('status').textContent, /等待对方/);
+  app.setState({ turn: 'red', boardKey: 'game:confirmed-opponent-reply', moveCount: 2 });
+  await app.advance(110);
+  assert.equal(app.searches.length, 2);
+});
+
+test('read-only confirmation keeps two-step pause and discards the late result after confirmed pause', async () => {
+  const app = await controller({}, { deferConfirmation: true });
+  await app.click('auto');
+  await app.resolveSearch();
+  await app.advance(6000);
+  await app.click('auto');
+  assert.equal(app.elements.get('auto').classList.contains('running'), true);
+  assert.equal(app.elements.get('pause-request').classList.contains('hidden'), false);
+  await app.click('pause-confirm');
+  assert.equal(app.elements.get('auto').classList.contains('running'), false);
+  app.confirmations[0].resolve();
+  await flush();
+  await app.advance(1000);
+  assert.equal(app.plays.length, 0);
+  assert.equal(app.playAttempts.length, 1);
+  assert.equal(app.searches.length, 1);
+  assert.match(app.elements.get('stop-reason').textContent, /手动确认/);
 });
 
 test('engine responses after the action reserve are refused', async () => {

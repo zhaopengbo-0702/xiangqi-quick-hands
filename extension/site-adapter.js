@@ -285,27 +285,34 @@
       checkAction();
       this.clickTarget(target, Boolean(pattern), () => setStage("destination-dispatched"));
       if (actionStage !== "destination-dispatched") setStage("destination-dispatched");
-      const confirmationDeadline = Math.min(this.window.performance.now() + 1500,
-        Number.isFinite(options.deadline) ? options.deadline : Infinity);
-      // Wait for the original click only; never replay an uncertain destination.
-      while (this.window.performance.now() < confirmationDeadline) {
-        checkAction();
+      const checkConfirmation = () => {
+        if (options.isCancelled?.()) throw adapterError("已取消落子确认", "XQ_CANCELLED");
+      };
+      // The input deadline ends at dispatch. A late website acknowledgement is
+      // read-only: keep waiting for this one click, never send another input.
+      while (true) {
+        checkConfirmation();
         let after;
-        try { after = await this.read({ ...options, deadline: confirmationDeadline }); }
+        try { after = await this.read({ timeoutMs: 650, deadline: this.window.performance.now() + 650 }); }
         catch (error) {
-          if (error.code !== "XQ_STATE_SYNC") throw error;
+          checkConfirmation();
+          if (!["XQ_STATE_SYNC", "XQ_READ_TIMEOUT", "XQ_BOARD_NOT_READY"].includes(error.code)) throw error;
           await this.wait(35);
+          checkConfirmation();
           continue;
         }
-        checkAction();
-        if (after.gameKey !== initial.gameKey || after.historyMode) throw adapterError("确认落子时对局已变化", "XQ_CONTEXT_CHANGED");
+        checkConfirmation();
+        if (after.gameKey !== initial.gameKey || after.historyMode || after.participant !== initial.participant ||
+            after.playerSide !== initial.playerSide) throw adapterError("确认落子时对局已变化", "XQ_CONTEXT_CHANGED");
+        if (after.puzzleWrong) throw adapterError("本题走法未通过，请检查题目", "XQ_PUZZLE_WRONG");
         if (after.moveCount > initial.moveCount && (after.fen.split(" ")[0] === predicted || after.recentPositions.some((entry) => entry.fen.split(" ")[0] === predicted))) return after;
+        if (after.puzzleCompleted || (!after.active && !after.loading && !after.hasPreMove && after.connected !== false)) {
+          throw adapterError("对局已结束，网站未确认本步落子", "XQ_GAME_ENDED");
+        }
         if (after.boardKey !== initial.boardKey) throw adapterError("网站局面与预期不同，已停止", "XQ_POSITION_CHANGED");
         await this.wait(35);
-        checkAction();
+        checkConfirmation();
       }
-      checkAction();
-      throw adapterError("网站未在时限内确认落子，已暂停，请检查棋盘", "XQ_ACTION_TIMEOUT");
       } catch (error) {
         const failure = error instanceof Error ? error : new Error(String(error));
         failure.actionStage = actionStage;

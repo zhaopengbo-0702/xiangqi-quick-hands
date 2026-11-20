@@ -40,7 +40,7 @@
     .actions{display:grid;grid-template-columns:1.35fr 1fr;gap:8px} .command{display:flex;align-items:center;justify-content:center;gap:6px;min-height:40px;border:1px solid #ccd7d0;border-radius:5px;background:#f6f8f7;color:#253c2e;font-weight:600}
     .primary{background:#176d4d;color:white;border-color:#176d4d}.primary img{filter:brightness(0) invert(1)}.primary.running{background:#a52b32;border-color:#a52b32}
     .result{margin-top:14px;border-top:1px solid #e7eae8;padding-top:11px;display:flex;justify-content:space-between;align-items:center;gap:8px}.move{font-family:Consolas,monospace;font-size:23px;font-weight:600;color:#224b38;white-space:nowrap}
-    #side{font-size:14px;color:#58665e}.metrics{display:flex;flex-wrap:wrap;justify-content:space-between;color:#58665e;font-size:14px;gap:5px;margin-top:7px;font-variant-numeric:tabular-nums}.pv{color:#58665e;font-family:Consolas,monospace;font-size:14px;line-height:1.6;overflow-wrap:anywhere;margin-top:9px;max-height:5em;overflow:auto}
+    #side{font-size:14px;color:#58665e}.metrics{display:flex;flex-wrap:wrap;justify-content:space-between;color:#58665e;font-size:14px;gap:5px;margin-top:7px;font-variant-numeric:tabular-nums}.score-meaning{font-size:14px;line-height:1.6;color:#58665e;margin-top:4px;overflow-wrap:anywhere}.pv{color:#58665e;font-family:Consolas,monospace;font-size:14px;line-height:1.6;overflow-wrap:anywhere;margin-top:9px;max-height:5em;overflow:auto}
     footer{display:flex;flex-wrap:wrap;gap:5px;align-items:center;justify-content:space-between;padding:9px 16px 9px 12px;background:#f7f9f8;border-top:1px solid #e7eae8;color:#58665e;font-size:14px}
     .hidden{display:none!important}:focus-visible{outline:2px solid #158a60;outline-offset:2px}
   </style><section id="panel" class="panel" aria-label="象棋快手控制台">
@@ -53,6 +53,7 @@
   <label class="variation" title="可随时开关，下一步生效；增加随机短暂停顿和棋子内部点击位置变化，不保证防检测或防封禁"><input id="vary-operations" type="checkbox" checked>反侦查辅助（操作变化）</label>
   <div class="actions"><button id="auto" class="command primary" disabled>${icon('play','开始自动')}</button><button id="single" class="command" disabled>${icon('step-forward','走一步')}</button></div>
   <div class="result"><output id="move" class="move">-</output><span id="side">-</span></div><div class="metrics"><span id="depth">深度 -</span><span id="score">评估 -</span><span id="elapsed">耗时 -</span></div>
+  <div id="score-meaning" class="score-meaning">暂无有效评估</div>
   <div class="importance"><span id="importance">重要性 -</span><span id="allocated">预算 -</span></div><div id="pv" class="pv"></div>
   <div id="stop-reason" class="stop-reason hidden" role="status"></div>
   </main><footer><span id="footer">最多 5 秒 · 至少 6 层</span><span id="plies">第 0 手</span></footer></div>
@@ -60,6 +61,31 @@
   document.documentElement.append(host);
   const $ = id => root.getElementById(id);
   $('panel-title').textContent = `象棋快手 v${chrome.runtime.getManifest().version}`;
+  function setEvaluation(score) {
+    const description = '局势指数 = tanh(1.5 × 旧评估)，保留 6 位小数；均势附近更灵敏，大分数更快接近两端，普通评分不显示 ±1。按本次搜索开始时的行棋方视角，正值有利、负值不利；这是局势指数，不是胜率。';
+    $('score').title = description;
+    if (!score || !Number.isFinite(score.value) || !['cp', 'mate'].includes(score.type)) {
+      $('score').textContent = '评估 -';
+      $('score-meaning').textContent = '暂无有效评估';
+      return;
+    }
+    if (score.type === 'mate') {
+      $('score').textContent = `杀棋 ${score.value}`;
+      $('score-meaning').textContent = score.value > 0 ? '引擎发现强制杀棋' : score.value < 0 ? '引擎发现对方强制杀棋' : '引擎报告终局杀棋';
+      return;
+    }
+    // The coefficient controls the curve's slope, not the input range. Keep finite
+    // scores inside the open interval even when floating point tanh saturates.
+    const index = Math.max(-0.999999, Math.min(0.999999, Math.tanh(score.value * 0.015)));
+    const rounded = Number(index.toFixed(6));
+    $('score').textContent = `评估 ${rounded > 0 ? '+' : ''}${(rounded === 0 ? 0 : rounded).toFixed(6)}`;
+    const magnitude = Math.abs(score.value / 100);
+    const positive = score.value > 0;
+    $('score-meaning').textContent = magnitude < 0.5 ? '均势' : magnitude < 1.5 ? (positive ? '稍优' : '稍劣') :
+      magnitude < 3 ? (positive ? '明显优势' : '明显劣势') : magnitude < 6 ? (positive ? '大幅优势' : '大幅劣势') :
+      (positive ? '接近胜势' : '接近败势');
+  }
+  setEvaluation(null);
   let ready = false;
   let auto = false;
   let busy = false;
@@ -451,13 +477,20 @@
       } else {
         status('正在落子', 'busy');
         await adapter.play(result.bestmove, snapshot, { deadline: started + Math.min(4900, turnLimit),
-          isCancelled: () => ticket !== generation, varyOperations });
+          isCancelled: () => ticket !== generation, varyOperations,
+          onStage(stage) {
+            if (stage === 'destination-dispatched' && ticket === generation) {
+              clearTimeout(watchdog);
+              watchdog = null;
+              status('落子已发送，等待网站确认（不会重复点击）', 'busy');
+            }
+          } });
       }
       if (ticket !== generation) return;
       if (!suggestionOnly) lastPlayed = snapshot.boardKey;
       $('move').textContent = result.bestmove;
       $('depth').textContent = `深度 ${result.depth ?? '-'}`;
-      $('score').textContent = result.score ? (result.score.type === 'mate' ? `杀棋 ${result.score.value}` : `评估 ${(result.score.value / 100).toFixed(2)}`) : '评估 -';
+      setEvaluation(result.score);
       $('elapsed').textContent = `耗时 ${((performance.now() - started) / 1000).toFixed(2)} 秒`;
       $('pv').textContent = (result.pv || []).slice(0, 8).join(' > ');
       $('importance').textContent = Number.isFinite(result.importance) ? `重要性 ${Math.round(result.importance * 100)}` : '固定时限';

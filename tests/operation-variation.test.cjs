@@ -14,7 +14,7 @@ function snapshot(gameID = 'variation-game', moved = false) {
 
 function fixture(options = {}) {
   let now = 0, reads = 0, selected = false, destinations = 0, cancelled = false;
-  const events = [], waits = [], readDeadlines = [];
+  const events = [], waits = [], readDeadlines = [], inputTimes = [];
   const initial = snapshot();
   let current = initial;
   const sourceRect = { left: 100, top: 300, width: 40, height: 40 };
@@ -22,7 +22,7 @@ function fixture(options = {}) {
   function element(name, rect, onClick = () => {}) {
     return { name, isConnected: true, getBoundingClientRect: () => rect,
       classList: { contains: value => name === 'source' && value === 'selected-piece' && selected },
-      dispatchEvent(event) { events.push({ element: name, ...event }); if (event.type === 'click') onClick(); } };
+      dispatchEvent(event) { inputTimes.push(now); events.push({ element: name, ...event }); if (event.type === 'click') onClick(); } };
   }
   const source = element('source', sourceRect, () => { selected = true; });
   const target = element('destination', targetRect, () => {
@@ -61,7 +61,7 @@ function fixture(options = {}) {
   };
   adapter.random = options.random || (() => 0.5);
   const controls = {
-    adapter, initial, source, target, events, waits, readDeadlines,
+    adapter, initial, source, target, events, waits, readDeadlines, inputTimes,
     get now() { return now; }, get reads() { return reads; }, get destinations() { return destinations; },
     advance: milliseconds => { now += milliseconds; }, cancel: () => { cancelled = true; },
     changeGame: () => { current = snapshot('replacement-game'); },
@@ -153,7 +153,8 @@ test('short remaining budgets reduce optional pauses and still confirm the origi
   assert.equal(controls.destinations, 1);
   assert.ok(controls.waits.reduce((total, value) => total + value, 0) < 370);
   assert.ok(controls.now < 500);
-  assert.ok(controls.readDeadlines.every(deadline => deadline <= 500));
+  assert.ok(controls.readDeadlines.slice(0, 3).every(deadline => deadline <= 500));
+  assert.ok(controls.inputTimes.every(time => time < 500));
 });
 
 test('a normal varied operation selects once, clicks one destination, and reads confirmation', async () => {
@@ -175,12 +176,17 @@ test('cancelling in the selection pause keeps the destination untouched', async 
   assert.equal(controls.destinations, 0);
 });
 
-test('missing confirmation respects the original deadline and never repeats the destination', async () => {
-  const controls = fixture({ confirm: false, random: () => 1, readCost: 5 });
-  await assert.rejects(controls.adapter.play(MOVE, controls.initial, { varyOperations: true, deadline: 800 }), /超时/);
+test('missing confirmation waits read-only past the input deadline until cancelled and never repeats the destination', async () => {
+  const controls = fixture({ confirm: false, random: () => 1, readCost: 5,
+    onWait: state => { if (state.now >= 2400) state.cancel(); } });
+  await assert.rejects(controls.adapter.play(MOVE, controls.initial, {
+    varyOperations: true, deadline: 800, isCancelled: controls.isCancelled,
+  }), { code: 'XQ_CANCELLED', actionStage: 'destination-dispatched' });
   assert.equal(controls.destinations, 1);
-  assert.ok(controls.readDeadlines.every(deadline => deadline <= 800));
-  assert.ok(controls.now < 850);
+  assert.ok(controls.readDeadlines.slice(0, 3).every(deadline => deadline <= 800));
+  assert.ok(controls.readDeadlines.some(deadline => deadline > 800));
+  assert.ok(controls.inputTimes.every(time => time < 800));
+  assert.ok(controls.now >= 2400);
 });
 
 test('disabling variation uses centered clicks and the original selection interval', async () => {

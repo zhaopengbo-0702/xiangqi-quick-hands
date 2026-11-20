@@ -25,16 +25,16 @@ const pieces=document.createElement('div');pieces.className='pieces-container';
 const rootState={current:null};const root={tag:3,stateNode:rootState,return:null};
 const gameFiber={memoizedProps:game,return:root};const provider={memoizedProps:{value:boardContext},return:gameFiber};const host={memoizedProps:{id:'game-grid'},return:provider};
 root.child=gameFiber;gameFiber.child=provider;provider.child=host;rootState.current=root;board.__reactFiber$puzzleFixture=host;
-let selected=null;let ownMoves=[];let inputAttempts=0;let completeOnMove=false;let wrongOnMove=false;let halfmove=0;let fullmove=1;
+let selected=null;let ownMoves=[];let inputAttempts=0;let completeOnMove=false;let wrongOnMove=false;let halfmove=0;let fullmove=1;let nextCommitDelay=0;let pendingConfirmation=false;let pendingCommit=null;let commitTimer=null;let confirmedAt=null;
 let cells=INITIAL.split(' ')[0].split('/').map(row=>[...row].flatMap(piece=>/\\d/.test(piece)?Array(Number(piece)).fill(null):[piece]));
-function publish(){window.puzzleFixture={fen:boardContext.fen,moveCount:game.moveCount,ownMoves:[...ownMoves],inputAttempts,answerReads,pointerInputs:[...pointerInputs],completed:game.isPuzzleCompleted,wrong:Boolean(game.wrongMove),id:game.puzzle.puzzle_id,route:location.pathname};document.getElementById('fixture-state').textContent=JSON.stringify(window.puzzleFixture)}
+function publish(){window.puzzleFixture={fen:boardContext.fen,moveCount:game.moveCount,ownMoves:[...ownMoves],inputAttempts,answerReads,pointerInputs:[...pointerInputs],completed:game.isPuzzleCompleted,wrong:Boolean(game.wrongMove),id:game.puzzle.puzzle_id,pendingConfirmation,confirmedAt,route:location.pathname};document.getElementById('fixture-state').textContent=JSON.stringify(window.puzzleFixture)}
 function sync(){provider.memoizedProps={value:boardContext};gameFiber.memoizedProps=game;publish()}
 function placement(){return cells.map(row=>{let text='',empty=0;for(const p of row){if(!p)empty++;else{if(empty)text+=empty;empty=0;text+=p}}if(empty)text+=empty;return text}).join('/')}
 function render(){pieces.replaceChildren();cells.forEach((row,r)=>row.forEach((piece,c)=>{if(!piece)return;const holder=document.createElement('div');holder.style.left=c*50+'px';holder.style.top=r*50+'px';const token=document.createElement('div');token.className='piece';token.textContent=piece;token.addEventListener('click',event=>{event.stopPropagation();pieces.querySelectorAll('.piece').forEach(p=>p.classList.remove('selected-piece'));token.classList.add('selected-piece');selected={r,c}});holder.append(token);pieces.append(holder)}))}
 function applyMove(uci){const m=uci.match(/^([a-i])(10|[1-9])([a-i])(10|[1-9])$/);if(!m)throw new Error('Bad fixture move');const fr=10-Number(m[2]),fc=m[1].charCodeAt(0)-97,tr=10-Number(m[4]),tc=m[3].charCodeAt(0)-97;const piece=cells[fr][fc];if(!piece)throw new Error('No fixture source');halfmove=cells[tr][tc]||piece.toLowerCase()==='p'?0:halfmove+1;const black=piece===piece.toLowerCase();if(black)fullmove++;cells[tr][tc]=piece;cells[fr][fc]=null;const fen=placement()+' '+(black?'r':'b')+' - - '+halfmove+' '+fullmove;game.moveCount++;const move={uci,index:game.moveCount,currentFen:fen};game.movesHistory.push(move);game.activeMove=move;boardContext={...boardContext,fen,isMyTurnNow:black};game.isPlayerTurn=black;render();sync()}
-function destination(r,c){if(!selected)return;inputAttempts++;if(!boardContext.isMyTurnNow||game.isPuzzleCompleted||game.wrongMove){selected=null;sync();return}const from=selected;selected=null;const uci=String.fromCharCode(97+from.c)+(10-from.r)+String.fromCharCode(97+c)+(10-r);ownMoves.push({uci,fen:boardContext.fen});if(wrongOnMove){game.wrongMove={uci};boardContext.wrongMove={uci};sync();return}applyMove(uci);if(completeOnMove){game.isPuzzleCompleted=true;game.lastMoveCompleted=true;sync()}}
+function destination(r,c){if(!selected)return;inputAttempts++;if(!boardContext.isMyTurnNow||game.isPuzzleCompleted||game.wrongMove||pendingConfirmation){selected=null;sync();return}const from=selected;selected=null;const uci=String.fromCharCode(97+from.c)+(10-from.r)+String.fromCharCode(97+c)+(10-r);ownMoves.push({uci,fen:boardContext.fen,dispatchedAt:Date.now()});if(wrongOnMove){game.wrongMove={uci};boardContext.wrongMove={uci};sync();return}const commit=()=>{pendingConfirmation=false;pendingCommit=null;confirmedAt=Date.now();applyMove(uci);if(completeOnMove){game.isPuzzleCompleted=true;game.lastMoveCompleted=true;sync()}};if(nextCommitDelay>0){const delay=nextCommitDelay;nextCommitDelay=0;pendingConfirmation=true;pendingCommit=commit;publish();commitTimer=setTimeout(commit,delay)}else commit()}
 for(let r=0;r<10;r++)for(let c=0;c<9;c++){const square=document.createElement('div');square.className='square '+(10-r)+'-'+String.fromCharCode(97+c);square.style.left=c*50+'px';square.style.top=r*50+'px';const target=document.createElement('div');target.className='square-target';target.addEventListener('click',()=>destination(r,c));square.append(target);board.append(square)}board.append(pieces);render();sync();
-window.fixtureActions={completeNext(){completeOnMove=true},wrongNext(){wrongOnMove=true},opponentMove(){const options=['a7a6','c7c6','e7e6','g7g6','i7i6'];const move=options.find(uci=>cells[3][uci.charCodeAt(0)-97]==='p'&&!cells[4][uci.charCodeAt(0)-97]);if(!move)throw new Error('No opponent fixture move');applyMove(move)},switchPuzzle(){game.puzzle.puzzle_id=456;game.playAgain++;sync()},raceEnd(){game.remainingTime=0;sync()}};
+window.fixtureActions={completeNext(){completeOnMove=true},wrongNext(){wrongOnMove=true},delayNext(ms){nextCommitDelay=ms},publishDelayed(){if(pendingCommit){clearTimeout(commitTimer);pendingCommit()}},opponentMove(){const options=['a7a6','c7c6','e7e6','g7g6','i7i6'];const move=options.find(uci=>cells[3][uci.charCodeAt(0)-97]==='p'&&!cells[4][uci.charCodeAt(0)-97]);if(!move)throw new Error('No opponent fixture move');applyMove(move)},switchPuzzle(){game.puzzle.puzzle_id=456;game.playAgain++;sync()},raceEnd(){game.remainingTime=0;sync()}};
 </script></body></html>`;
 
 async function main() {
@@ -57,8 +57,22 @@ async function main() {
       chrome.runtime.connectNative = () => connect('com.xiangqi.quick_hands.deliberately_missing');
       globalThis.puzzleSmokeRequests = [];
       globalThis.puzzleSmokeCancellations = [];
+      globalThis.puzzleSmokeTimeline = [];
+      const sendMessage = chrome.runtime.sendMessage.bind(chrome.runtime);
+      chrome.runtime.sendMessage = async function(message, ...args) {
+        const tracked = /^XQ_ENGINE_/.test(message.type || '');
+        if (tracked) globalThis.puzzleSmokeTimeline.push({ stage: 'send', type: message.type, at: Date.now(), options: message.options });
+        try {
+          const response = await sendMessage(message, ...args);
+          if (tracked) globalThis.puzzleSmokeTimeline.push({ stage: 'reply', type: message.type, at: Date.now(), ok: response?.ok, result: message.type === 'XQ_ENGINE_ANALYZE' ? response : undefined });
+          return response;
+        } catch (error) {
+          if (tracked) globalThis.puzzleSmokeTimeline.push({ stage: 'error', type: message.type, at: Date.now(), error: error.message });
+          throw error;
+        }
+      };
       chrome.runtime.onMessage.addListener((message, sender) => {
-        if (message.type === 'XQ_ANALYZE' && sender.tab) globalThis.puzzleSmokeRequests.push({ fen: message.fen, moves: message.moves, mode: message.mode, movetime: message.movetime, balance: message.balance, requestId: message.requestId, url: sender.tab.url });
+        if (message.type === 'XQ_ANALYZE' && sender.tab) globalThis.puzzleSmokeRequests.push({ fen: message.fen, moves: message.moves, mode: message.mode, movetime: message.movetime, balance: message.balance, requestId: message.requestId, at: Date.now(), url: sender.tab.url });
         if (message.type === 'XQ_CANCEL' && sender.tab) globalThis.puzzleSmokeCancellations.push({ requestId: message.requestId, url: sender.tab.url });
       });
     });
@@ -69,17 +83,72 @@ async function main() {
         const r = document.getElementById('xq-quick-hands')?.shadowRoot;
         return r && !r.getElementById('single').disabled;
       }, null, { timeout: 30000 });
+      await keepPanelBesideBoard();
       await worker.evaluate(async () => {
         const tabs = await chrome.tabs.query({ url: 'https://play.xiangqi.com/*' });
         await chrome.scripting.executeScript({ target: { tabId: tabs[0].id }, world: 'ISOLATED', func: () => {
           const original = globalThis.XiangqiSiteAdapter.prototype.play;
+          const clickTarget = globalThis.XiangqiSiteAdapter.prototype.clickTarget;
           globalThis.puzzleSmokePlayOptions = [];
+          globalThis.puzzleSmokePlayErrors = [];
+          globalThis.puzzleSmokeClickHits = [];
+          globalThis.XiangqiSiteAdapter.prototype.clickTarget = function(element, vary, beforeDispatch) {
+            const elementFromPoint = document.elementFromPoint;
+            document.elementFromPoint = function(x, y) {
+              const hit = elementFromPoint.call(this, x, y);
+              globalThis.puzzleSmokeClickHits.push({ at: Date.now(), x, y, targetClass: element?.className, target: element?.getBoundingClientRect().toJSON(), hit: hit && { tag: hit.tagName, id: hit.id, class: hit.className, rect: hit.getBoundingClientRect().toJSON() }, board: document.getElementById('game-grid').getBoundingClientRect().toJSON(), panel: document.getElementById('xq-quick-hands')?.shadowRoot?.getElementById('panel').getBoundingClientRect().toJSON() });
+              return hit;
+            };
+            try { return clickTarget.call(this, element, vary, beforeDispatch); }
+            finally { document.elementFromPoint = elementFromPoint; }
+          };
           globalThis.XiangqiSiteAdapter.prototype.play = function(move, snapshot, options) {
             globalThis.puzzleSmokePlayOptions.push({ move, varyOperations: options.varyOperations });
-            return original.call(this, move, snapshot, options);
+            return original.call(this, move, snapshot, options).catch(error => {
+              globalThis.puzzleSmokePlayErrors.push({ move, at: Date.now(), message: error.message, code: error.code, actionStage: error.actionStage, scrollX, scrollY });
+              throw error;
+            });
           };
         } });
       });
+      await captureEngineReplies();
+    }
+    async function captureEngineReplies() {
+      await worker.evaluate(async () => {
+        const tabs = await chrome.tabs.query({ url: 'https://play.xiangqi.com/*' });
+        await chrome.scripting.executeScript({ target: { tabId: tabs[0].id }, world: 'ISOLATED', func: () => {
+          const sendMessage = chrome.runtime.sendMessage.bind(chrome.runtime);
+          globalThis.puzzleSmokeReplies = [];
+          chrome.runtime.sendMessage = async function(message, ...args) {
+            const response = await sendMessage(message, ...args);
+            if (message.type === 'XQ_ANALYZE') globalThis.puzzleSmokeReplies.push({ requestId: message.requestId, response });
+            return response;
+          };
+        } });
+      });
+    }
+    async function assertRealEvaluation(value) {
+      const replies = await worker.evaluate(async () => {
+        const tabs = await chrome.tabs.query({ url: 'https://play.xiangqi.com/*' });
+        const result = await chrome.scripting.executeScript({ target: { tabId: tabs[0].id }, world: 'ISOLATED', func: () => globalThis.puzzleSmokeReplies });
+        return result[0].result;
+      });
+      const reply = replies.at(-1);
+      assert.ok(reply?.response?.ok, 'The genuine engine returned a successful response');
+      const score = reply.response.score;
+      assert.equal(score?.type, 'cp', 'The real starting-position evaluation is a finite centipawn result');
+      assert.ok(Number.isFinite(score.value));
+      const index = Math.max(-.999999, Math.min(.999999, Math.tanh(score.value * .015)));
+      const numeric = Math.abs(index) < .0000005 ? '0.000000' : (index > 0 ? '+' : '-') + Math.abs(index).toFixed(6);
+      assert.equal(value.score, '评估 ' + numeric, 'The displayed six-decimal index matches the real engine score');
+      const magnitude = Math.abs(score.value);
+      const meaning = magnitude < 50 ? '均势' : score.value > 0 ?
+        magnitude < 150 ? '稍优' : magnitude < 300 ? '明显优势' : magnitude < 600 ? '大幅优势' : '接近胜势' :
+        magnitude < 150 ? '稍劣' : magnitude < 300 ? '明显劣势' : magnitude < 600 ? '大幅劣势' : '接近败势';
+      assert.equal(value.scoreMeaning, meaning, 'The real engine score receives the matching plain-language meaning');
+      assert.equal(value.hasRawScore, false, 'The panel contains no separate raw-score field');
+      assert.notEqual(value.score, '评估 ' + (score.value / 100).toFixed(2), 'The old raw score is not rendered');
+      return { requestId: reply.requestId, engineScore: score, displayed: value.score, meaning: value.scoreMeaning };
     }
     async function playOptions() {
       return worker.evaluate(async () => {
@@ -96,6 +165,19 @@ async function main() {
         }
         throw new Error('Operation variation setting was not saved');
       }, expected);
+    }
+    async function keepPanelBesideBoard() {
+      const panel = page.locator('#panel'), header = page.locator('#panel-title');
+      const box = await panel.boundingBox(), title = await header.boundingBox(), board = await page.locator('#game-grid').boundingBox();
+      assert.ok(box && title && board);
+      const targetLeft = 800, targetTop = 100;
+      if (Math.abs(box.x - targetLeft) > 1 || Math.abs(box.y - targetTop) > 1) {
+        const x = title.x + Math.min(50, title.width / 2), y = title.y + title.height / 2;
+        await page.mouse.move(x, y); await page.mouse.down();
+        await page.mouse.move(x + targetLeft - box.x, y + targetTop - box.y, { steps: 5 }); await page.mouse.up();
+      }
+      const positioned = await panel.boundingBox();
+      assert.ok(positioned.x > board.x + board.width + 20, 'The local test panel stays beside the chessboard');
     }
     async function savedSearch(mode, movetime) {
       await worker.evaluate(async expected => {
@@ -138,7 +220,7 @@ async function main() {
     async function state() {
       return page.evaluate(() => {
         const r = document.getElementById('xq-quick-hands').shadowRoot;
-        return { ...window.puzzleFixture, status: r.getElementById('status').textContent, auto: r.getElementById('auto').textContent, autoDisabled: r.getElementById('auto').disabled, singleDisabled: r.getElementById('single').disabled, single: r.getElementById('single').textContent, searchMode: r.getElementById('mode').value, searchModeDisabled: r.getElementById('mode').disabled, movetime: Number(r.getElementById('budget').value), movetimeDisabled: r.getElementById('budget').disabled, balance: Number(r.getElementById('balance').value), balanceLabel: r.getElementById('balance-label').textContent, balanceDisabled: r.getElementById('balance').disabled, balanceVisible: !r.getElementById('balance-row').classList.contains('hidden'), variationChecked: r.getElementById('vary-operations').checked, variationDisabled: r.getElementById('vary-operations').disabled, side: r.getElementById('side').textContent, move: r.getElementById('move').textContent, depth: r.getElementById('depth').textContent, engine: r.getElementById('engine-name').textContent };
+        return { ...window.puzzleFixture, status: r.getElementById('status').textContent, auto: r.getElementById('auto').textContent, autoDisabled: r.getElementById('auto').disabled, singleDisabled: r.getElementById('single').disabled, single: r.getElementById('single').textContent, searchMode: r.getElementById('mode').value, searchModeDisabled: r.getElementById('mode').disabled, movetime: Number(r.getElementById('budget').value), movetimeDisabled: r.getElementById('budget').disabled, balance: Number(r.getElementById('balance').value), balanceLabel: r.getElementById('balance-label').textContent, balanceDisabled: r.getElementById('balance').disabled, balanceVisible: !r.getElementById('balance-row').classList.contains('hidden'), variationChecked: r.getElementById('vary-operations').checked, variationDisabled: r.getElementById('vary-operations').disabled, side: r.getElementById('side').textContent, move: r.getElementById('move').textContent, depth: r.getElementById('depth').textContent, score: r.getElementById('score').textContent, scoreMeaning: r.getElementById('score-meaning').textContent, hasRawScore: Boolean(r.getElementById('score-raw')), engine: r.getElementById('engine-name').textContent };
       });
     }
     async function waitPaused(pattern) {
@@ -227,7 +309,7 @@ async function main() {
     assert.match(computingDragged.status, /正在计算/, 'The preference percentage changes during the active engine search');
     assert.match(computingDragged.auto, /暂停自动/, 'Dragging the preference does not pause autoplay');
     await fs.mkdir(results, { recursive: true });
-    await page.screenshot({ path: path.join(results, 'mv3-live-decision-preference.png'), fullPage: true });
+    await page.locator('#panel').screenshot({ path: path.join(results, 'mv3-live-decision-preference.png') });
     await page.locator('#mode').selectOption('fixed');
     await page.locator('#budget').selectOption('2800');
     await savedSearch('fixed', 2800);
@@ -238,7 +320,8 @@ async function main() {
     assert.equal(computingChanged.movetime, 2800);
     assert.equal(computingChanged.balance, .25);
     await fs.mkdir(results, { recursive: true });
-    await page.screenshot({ path: path.join(results, 'mv3-live-search-settings.png'), fullPage: true });
+    await page.locator('#panel').screenshot({ path: path.join(results, 'mv3-live-search-settings.png') });
+    await keepPanelBesideBoard();
     await page.waitForFunction(() => window.puzzleFixture.ownMoves.length === 1 && /等待对方/.test(document.getElementById('xq-quick-hands').shadowRoot.getElementById('status').textContent), null, { timeout: 15000 });
     const waitingBefore = await state();
     assert.equal(waitingBefore.searchModeDisabled, false, 'Search mode remains usable while autoplay waits for the opponent');
@@ -288,6 +371,70 @@ async function main() {
     assert.equal(reloaded.balanceVisible, true);
     cases.push({ route: '/puzzle/123/P', ending: 'live-search-settings', computingBefore, computingDragged, computingChanged, waitingBefore, waitingDragged, waitingChanged, after: liveAfter, reloaded, requests: liveRequests, settingsCancellations: 0 });
 
+    await open('/puzzle/123/P');
+    await page.locator('#mode').selectOption('fixed');
+    await page.locator('#budget').selectOption('1800');
+    await savedSearch('fixed', 1800);
+    await page.evaluate(() => window.fixtureActions.delayNext(8000));
+    const delayedStart = await worker.evaluate(() => ({ requests: globalThis.puzzleSmokeRequests.length, cancellations: globalThis.puzzleSmokeCancellations.length }));
+    await page.locator('#auto').click();
+    await page.waitForFunction(() => window.puzzleFixture.pendingConfirmation, null, { timeout: 15000 });
+    const dispatched = await state();
+    assert.equal(dispatched.moveCount, 0, 'The website fixture has not published the move yet');
+    assert.equal(dispatched.ownMoves.length, 1);
+    assert.equal(dispatched.inputAttempts, 1);
+    await page.waitForTimeout(5500);
+    const delayedWaiting = await state();
+    assert.equal(delayedWaiting.pendingConfirmation, true, 'Confirmation is still delayed beyond five seconds after the destination click');
+    assert.match(delayedWaiting.status, /等待.*确认|确认.*等待/);
+    assert.match(delayedWaiting.auto, /暂停自动/, 'Delayed website confirmation keeps autoplay active');
+    assert.equal(delayedWaiting.singleDisabled, true, 'No second move can start while confirmation is pending');
+    assert.equal(delayedWaiting.ownMoves.length, 1);
+    assert.equal(delayedWaiting.inputAttempts, 1, 'The original destination click is never replayed');
+    assert.equal(delayedWaiting.pointerInputs.length, 6, 'Waiting emits no additional source or destination input');
+    assert.equal(await worker.evaluate(() => globalThis.puzzleSmokeRequests.length), delayedStart.requests + 1, 'Waiting never launches another search');
+    assert.equal(await worker.evaluate(() => globalThis.puzzleSmokeCancellations.length), delayedStart.cancellations, 'Waiting does not cancel the original operation');
+    await page.locator('#panel').screenshot({ path: path.join(results, 'mv3-delayed-confirmation-waiting.png') });
+    await page.waitForFunction(() => window.puzzleFixture.moveCount === 1 && /等待对方/.test(document.getElementById('xq-quick-hands').shadowRoot.getElementById('status').textContent), null, { timeout: 10000 });
+    const delayedConfirmed = await state();
+    assert.ok(delayedConfirmed.confirmedAt - delayedConfirmed.ownMoves[0].dispatchedAt >= 7900, 'The actual publication occurred after the configured eight-second delay');
+    assert.match(delayedConfirmed.auto, /暂停自动/);
+    assert.equal(delayedConfirmed.inputAttempts, 1);
+    await page.evaluate(() => window.fixtureActions.opponentMove());
+    await page.waitForFunction(() => window.puzzleFixture.ownMoves.length === 2 && /等待对方/.test(document.getElementById('xq-quick-hands').shadowRoot.getElementById('status').textContent), null, { timeout: 15000 });
+    const delayedContinued = await state();
+    assert.equal(delayedContinued.inputAttempts, 2);
+    assert.equal(await worker.evaluate(() => globalThis.puzzleSmokeRequests.length), delayedStart.requests + 2);
+    assert.match(delayedContinued.auto, /暂停自动/, 'Autoplay continues with the next turn after the delayed confirmation');
+    cases.push({ route: '/puzzle/123/P', ending: 'delayed-confirmation-over-five-seconds', dispatched, waiting: delayedWaiting, confirmed: delayedConfirmed, after: delayedContinued });
+
+    await open('/puzzle/123/P');
+    await page.evaluate(() => window.fixtureActions.delayNext(60000));
+    const pauseDelayedStart = await worker.evaluate(() => globalThis.puzzleSmokeRequests.length);
+    await page.locator('#auto').click();
+    await page.waitForFunction(() => window.puzzleFixture.pendingConfirmation && /等待.*确认|确认.*等待/.test(document.getElementById('xq-quick-hands').shadowRoot.getElementById('status').textContent), null, { timeout: 15000 });
+    await page.locator('#auto').click();
+    await page.locator('#pause-confirm').waitFor({ state: 'visible' });
+    const requestedPause = await state();
+    assert.match(requestedPause.auto, /暂停自动/, 'The first pause click keeps the confirmation wait running');
+    assert.equal(requestedPause.pendingConfirmation, true);
+    await page.locator('#pause-confirm').click();
+    await waitPaused('手动确认');
+    const manuallyPaused = await state();
+    assert.equal(manuallyPaused.pendingConfirmation, true, 'Manual pause does not fabricate a website acknowledgement');
+    assert.equal(manuallyPaused.inputAttempts, 1);
+    assert.equal(manuallyPaused.ownMoves.length, 1);
+    await page.evaluate(() => window.fixtureActions.publishDelayed());
+    await page.waitForFunction(() => window.puzzleFixture.moveCount === 1);
+    await page.evaluate(() => window.fixtureActions.opponentMove());
+    await page.waitForTimeout(1000);
+    const pausedAfterLatePublish = await state();
+    assert.match(pausedAfterLatePublish.auto, /开始自动/, 'A late acknowledgement never resumes a manually paused operation');
+    assert.equal(pausedAfterLatePublish.inputAttempts, 1);
+    assert.equal(pausedAfterLatePublish.ownMoves.length, 1);
+    assert.equal(await worker.evaluate(() => globalThis.puzzleSmokeRequests.length), pauseDelayedStart + 1);
+    cases.push({ route: '/puzzle/123/P', ending: 'manual-two-step-pause-during-delayed-confirmation', requestedPause, paused: manuallyPaused, after: pausedAfterLatePublish });
+
     await open('/analysis/board');
     const analysisBefore = await state();
     assert.match(analysisBefore.single, /分析局面/);
@@ -303,11 +450,13 @@ async function main() {
     assert.ok(Number(analysisAfter.depth.match(/\d+/)?.[0]) >= 6);
     assert.match(analysisAfter.move, /^[a-i](10|[1-9])[a-i](10|[1-9])$/);
     assert.equal(analysisAfter.answerReads, 0);
-    cases.push({ route: '/analysis/board', ending: 'suggest-only', before: analysisBefore, after: analysisAfter });
+    const actualEvaluation = await assertRealEvaluation(analysisAfter);
+    cases.push({ route: '/analysis/board', ending: 'suggest-only', before: analysisBefore, after: analysisAfter, actualEvaluation });
     assert.deepEqual(errors, []);
     await fs.mkdir(results, { recursive: true });
     await page.screenshot({ path: path.join(results, 'mv3-puzzle-analysis.png'), fullPage: true });
-    const report = { ok: true, manifestVersion: JSON.parse(await fs.readFile(path.join(extension, 'manifest.json'), 'utf8')).version, scenario: 'real MV3 + genuine Pikafish NNUE WASM + local fixtures matching observed puzzle and analysis props; live search settings without pause; no answer lookup', cases, requests: await worker.evaluate(() => globalThis.puzzleSmokeRequests), cancellations: await worker.evaluate(() => globalThis.puzzleSmokeCancellations), pageErrors: errors };
+    await page.locator('#panel').screenshot({ path: path.join(results, 'mv3-normalized-evaluation.png') });
+    const report = { ok: true, manifestVersion: JSON.parse(await fs.readFile(path.join(extension, 'manifest.json'), 'utf8')).version, scenario: 'real MV3 + genuine Pikafish NNUE WASM + local fixtures matching observed puzzle and analysis props; live search settings without pause; no answer lookup', cases, requests: await worker.evaluate(() => globalThis.puzzleSmokeRequests), cancellations: await worker.evaluate(() => globalThis.puzzleSmokeCancellations), engineTimeline: await worker.evaluate(() => globalThis.puzzleSmokeTimeline), pageErrors: errors };
     await fs.writeFile(path.join(results, 'mv3-puzzle-analysis.json'), JSON.stringify(report, null, 2) + '\n');
     console.log(JSON.stringify(report, null, 2));
   } catch (error) {
@@ -318,11 +467,14 @@ async function main() {
       return { fixture: window.puzzleFixture, status: r?.getElementById('status').textContent,
         auto: r?.getElementById('auto').textContent, mode: r?.getElementById('mode').value,
         movetime: r?.getElementById('budget').value, balance: r?.getElementById('balance').value,
-        visibility: document.visibilityState, focused: document.hasFocus() };
+        visibility: document.visibilityState, focused: document.hasFocus(), scrollX, scrollY, viewport: { width: innerWidth, height: innerHeight } };
     }).catch(() => null);
-    const failureBackground = await worker?.evaluate(() => ({ requests: globalThis.puzzleSmokeRequests,
-      cancellations: globalThis.puzzleSmokeCancellations, owner, engineBackend: typeof engineBackend === 'undefined' ? null : engineBackend,
-      backgroundTabs: [...backgroundTabs.keys()] })).catch(error => ({ unavailable: error.message }));
+    const failureBackground = await worker?.evaluate(async () => {
+      const tabs = await chrome.tabs.query({ url: 'https://play.xiangqi.com/*' });
+      const captured = await chrome.scripting.executeScript({ target: { tabId: tabs[0].id }, world: 'ISOLATED', func: () => ({ replies: globalThis.puzzleSmokeReplies, playErrors: globalThis.puzzleSmokePlayErrors, clickHits: globalThis.puzzleSmokeClickHits }) });
+      return { requests: globalThis.puzzleSmokeRequests, cancellations: globalThis.puzzleSmokeCancellations,
+        engineTimeline: globalThis.puzzleSmokeTimeline, pageReplies: captured[0].result.replies, playErrors: captured[0].result.playErrors, clickHits: captured[0].result.clickHits };
+    }).catch(error => ({ unavailable: error.message }));
     console.error('FIXTURE', failureState, 'BACKGROUND', failureBackground);
     await fs.writeFile(path.join(results, 'mv3-puzzle-analysis-failed.json'), JSON.stringify({ ok: false, cases, failureState, failureBackground, pageErrors: errors, error: error.stack || String(error) }, null, 2) + '\n');
     throw error;

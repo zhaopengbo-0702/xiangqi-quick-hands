@@ -83,17 +83,52 @@ test('a destination event dispatch failure remains an uncertain move and cannot 
   assert.deepEqual(state.events.filter(event => event.startsWith('destination:')), ['destination:mousedown']);
 });
 
-test('a confirmation read timeout is marked after the one destination click', async () => {
+test('confirmation read interruptions recover without stopping or replaying the destination', async () => {
+  for (const interruptions of [['XQ_READ_TIMEOUT'], ['XQ_READ_TIMEOUT', 'XQ_STATE_SYNC', 'XQ_BOARD_NOT_READY', 'XQ_READ_TIMEOUT']]) {
+    const state = fixture();
+    const read = state.adapter.read;
+    let calls = 0;
+    const errors = [...interruptions];
+    state.adapter.read = async options => {
+      if (++calls > 2 && errors.length) throw Object.assign(new Error('temporary confirmation interruption'), { code: errors.shift() });
+      return read(options);
+    };
+    assert.equal((await state.adapter.play(MOVE, state.initial, { onStage: state.onStage, deadline: 80 })).moveCount, 1);
+    assert.equal(state.destinationClicks, 1);
+    assert.deepEqual(state.stages, ['before-selection', 'selected', 'destination-dispatched']);
+  }
+});
+
+test('confirmation stops for changed context, puzzle rejection and an unconfirmed game ending', async () => {
+  for (const [change, code] of [
+    [{ gameKey: 'another-game' }, 'XQ_CONTEXT_CHANGED'],
+    [{ historyMode: true }, 'XQ_CONTEXT_CHANGED'],
+    [{ participant: false }, 'XQ_CONTEXT_CHANGED'],
+    [{ playerSide: 'black' }, 'XQ_CONTEXT_CHANGED'],
+    [{ puzzleWrong: true }, 'XQ_PUZZLE_WRONG'],
+    [{ active: false }, 'XQ_GAME_ENDED'],
+    [{ puzzleCompleted: true }, 'XQ_GAME_ENDED'],
+  ]) {
+    const state = fixture();
+    const read = state.adapter.read;
+    state.adapter.read = async options => state.destinationClicks ? { ...state.initial, ...change } : read(options);
+    await assert.rejects(state.adapter.play(MOVE, state.initial, { onStage: state.onStage, deadline: 500 }), {
+      code, actionStage: 'destination-dispatched',
+    });
+    assert.equal(state.destinationClicks, 1);
+  }
+});
+
+test('confirmation ignores a turn-only update until its exact destination is published', async () => {
   const state = fixture();
   const read = state.adapter.read;
-  let calls = 0;
+  let confirmationReads = 0;
   state.adapter.read = async options => {
-    if (++calls === 3) throw Object.assign(new Error('confirmation-timeout'), { code: 'XQ_READ_TIMEOUT' });
+    if (state.destinationClicks && ++confirmationReads <= 3) return { ...state.initial, turn: 'black', isMyTurnNow: false };
     return read(options);
   };
-  await assert.rejects(state.adapter.play(MOVE, state.initial, { onStage: state.onStage, deadline: 500 }), {
-    code: 'XQ_READ_TIMEOUT', actionStage: 'destination-dispatched',
-  });
+  assert.equal((await state.adapter.play(MOVE, state.initial, { deadline: 80 })).moveCount, 1);
+  assert.equal(confirmationReads, 4);
   assert.equal(state.destinationClicks, 1);
 });
 

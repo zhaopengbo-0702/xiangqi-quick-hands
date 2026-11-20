@@ -110,10 +110,15 @@ test("transient acknowledgement sync errors confirm the original move without a 
   assert.equal(destinations(), 1);
 });
 
-test("unconfirmed destination sync errors stop at the deadline without authorizing an automatic retry", async () => {
+test("unconfirmed destination sync errors keep reading past the action deadline until manual cancellation", async () => {
   const { adapter, snapshot, destinations } = acknowledgementFixture(true);
-  await assert.rejects(adapter.play("b3e3", snapshot, { deadline: performance.now() + 120 }), error =>
-    error.code !== "XQ_STATE_SYNC" && /超时/.test(error.message));
+  let now = 0, cancelled = false;
+  adapter.window.performance = { now: () => now };
+  adapter.delay = async milliseconds => { now += milliseconds; if (now >= 600) cancelled = true; };
+  await assert.rejects(adapter.play("b3e3", snapshot, { deadline: 120, isCancelled: () => cancelled }), {
+    code: "XQ_CANCELLED", actionStage: "destination-dispatched",
+  });
+  assert.ok(now >= 600);
   assert.equal(destinations(), 1);
 });
 
@@ -166,9 +171,21 @@ test("a different published move pauses rather than confirming or repeating the 
   assert.equal(destinations(), 1);
 });
 
-test("delayed acknowledgements remain bounded by the original move deadline", async () => {
-  const { adapter, snapshot, destinations } = delayedAcknowledgementFixture({ delayMs: 900 });
-  await assert.rejects(adapter.play("b3e3", snapshot, { deadline: performance.now() + 150 }), /超时/);
+test("an acknowledgement after 1500ms and the input deadline confirms only the original click", async () => {
+  const { adapter, snapshot, destinations } = delayedAcknowledgementFixture();
+  let now = 0;
+  adapter.window.performance = { now: () => now };
+  adapter.delay = async milliseconds => { now += milliseconds; };
+  const initialRead = adapter.read;
+  const after = { ...snapshot, fen: applyPlacement(INITIAL, "b3e3") + " b - - 1 1", moveCount: 1 };
+  adapter.read = async options => {
+    if (destinations() && now >= 1800) return after;
+    if (destinations()) return snapshot;
+    return initialRead(options);
+  };
+  const confirmed = await adapter.play("b3e3", snapshot, { deadline: 150 });
+  assert.equal(confirmed.moveCount, 1);
+  assert.ok(now >= 1800);
   assert.equal(destinations(), 1);
 });
 
