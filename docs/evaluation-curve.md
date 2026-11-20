@@ -105,11 +105,11 @@ G_4(r)={}&-0.009965516182746442T_4^3
 ```math
 g(r)=
 \begin{cases}
-G_0(r),&0\le r<c_1,\\
-G_1(r),&c_1\le r<c_2,\\
-G_2(r),&c_2\le r<c_3,\\
-G_3(r),&c_3\le r<c_4,\\
-G_4(r),&c_4\le r<+\infty.
+G_0(r),&0\le r\lt c_1,\\
+G_1(r),&c_1\le r\lt c_2,\\
+G_2(r),&c_2\le r\lt c_3,\\
+G_3(r),&c_3\le r\lt c_4,\\
+G_4(r),&c_4\le r\lt +\infty.
 \end{cases}
 ```
 
