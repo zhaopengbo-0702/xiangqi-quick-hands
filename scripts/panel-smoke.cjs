@@ -415,17 +415,29 @@ async function main() {
         assert.match(expected, /^评估 [+-]?0\.\d{6}$/);
         assert.notEqual(expected, '评估 ' + (score.value / 100).toFixed(2), 'The old raw score is absent from the evaluation');
         assert.match(await page.locator('#score').getAttribute('title'), /tanh/);
+        assert.match(await page.locator('#score').getAttribute('title'), /PCHIP/);
       }
       observations.push({ name: 'normalized-evaluation', engineScore: score, expected, meaning });
     }
     for (const [value, expected, meaning] of [
-      [100, '评估 +0.905148', '稍优'],
-      [-104, '评估 -0.915420', '稍劣'],
+      [100, '评估 +0.617918', '稍优'],
+      [-104, '评估 -0.626702', '稍劣'],
       [0, '评估 0.000000', '均势'],
       [900, '评估 +0.999999', '接近胜势'],
       [-900, '评估 -0.999999', '接近败势'],
     ]) await displayScore({ type: 'cp', value }, expected, meaning);
     checks.push('real-controller-normalized-positive-negative-zero-six-decimal-meaning-without-raw-score');
+    for (const [u, mapped, positive, negative] of [
+      [.635148952387, .5, '稍优', '稍劣'],
+      [.978026114739, .7, '明显优势', '明显劣势'],
+      [.999753210848, .9, '大幅优势', '大幅劣势'],
+      [.999999969540, .99, '接近胜势', '接近败势'],
+    ]) {
+      const cp = Math.atanh(u) / .015;
+      await displayScore({ type: 'cp', value: cp }, '评估 +' + mapped.toFixed(6), positive);
+      await displayScore({ type: 'cp', value: -cp }, '评估 -' + mapped.toFixed(6), negative);
+    }
+    checks.push('pchip-four-anchors-odd-symmetry-and-rounded-display-meaning-boundaries');
     for (const [value, meaning] of [[3, '引擎发现强制杀棋'], [-3, '引擎发现对方强制杀棋']]) {
       await displayScore({ type: 'mate', value }, '杀棋 ' + value, meaning);
     }
@@ -444,7 +456,7 @@ async function main() {
       assert.ok(value.lines.length >= 2 && value.lines.every(line => line.width > 0 && line.height > 0 && line.left >= value.left - 1 && line.right <= value.right + 1), name + ': both evaluation lines fit the main panel: ' + JSON.stringify(value));
       observations.push({ name, evaluationGeometry: value });
     }
-    await displayScore({ type: 'cp', value: -104 }, '评估 -0.915420', '稍劣');
+    await displayScore({ type: 'cp', value: -104 }, '评估 -0.626702', '稍劣');
     await header.locator('strong').dblclick(); await waitScale(1);
     await scoreFits('evaluation-100'); await compact(); await screenshot('panel-evaluation-100');
     for (const target of [1.5, 2]) {

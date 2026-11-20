@@ -61,8 +61,42 @@
   document.documentElement.append(host);
   const $ = id => root.getElementById(id);
   $('panel-title').textContent = `象棋快手 v${chrome.runtime.getManifest().version}`;
+  const evaluationKnots = [0, 0.635148952387, 0.978026114739, 0.999753210848, 0.999999969540, 1];
+  const evaluationTargets = [0, 0.5, 0.7, 0.9, 0.99, 1];
+  const evaluationSegments = (() => {
+    const h = evaluationKnots.slice(1).map((x, i) => x - evaluationKnots[i]);
+    const delta = h.map((width, i) => (evaluationTargets[i + 1] - evaluationTargets[i]) / width);
+    const edge = (h0, h1, d0, d1) => {
+      const slope = ((2 * h0 + h1) * d0 - h0 * d1) / (h0 + h1);
+      if (Math.sign(slope) !== Math.sign(d0)) return 0;
+      return Math.sign(d0) !== Math.sign(d1) && Math.abs(slope) > 3 * Math.abs(d0) ? 3 * d0 : slope;
+    };
+    const slopes = [edge(h[0], h[1], delta[0], delta[1])];
+    for (let i = 1; i < evaluationKnots.length - 1; i++) {
+      const w1 = 2 * h[i] + h[i - 1], w2 = h[i] + 2 * h[i - 1];
+      slopes.push(delta[i - 1] * delta[i] <= 0 ? 0 : (w1 + w2) / (w1 / delta[i - 1] + w2 / delta[i]));
+    }
+    const last = h.length - 1;
+    slopes.push(edge(h[last], h[last - 1], delta[last], delta[last - 1]));
+    return h.map((width, i) => {
+      const start = evaluationTargets[i], end = evaluationTargets[i + 1];
+      return { width, A: 2 * start - 2 * end + width * (slopes[i] + slopes[i + 1]),
+        B: -3 * start + 3 * end - width * (2 * slopes[i] + slopes[i + 1]), C: width * slopes[i], D: start };
+    });
+  })();
+  function interpolateEvaluation(value) {
+    if (!Number.isFinite(value)) return NaN;
+    const magnitude = Math.min(1, Math.abs(value));
+    if (magnitude === 0) return 0;
+    if (magnitude === 1) return Math.sign(value);
+    let i = 0;
+    while (magnitude > evaluationKnots[i + 1]) i++;
+    const segment = evaluationSegments[i], t = (magnitude - evaluationKnots[i]) / segment.width;
+    const result = ((segment.A * t + segment.B) * t + segment.C) * t + segment.D;
+    return Math.sign(value) * result;
+  }
   function setEvaluation(score) {
-    const description = '局势指数 = tanh(1.5 × 旧评估)，保留 6 位小数；均势附近更灵敏，大分数更快接近两端，普通评分不显示 ±1。按本次搜索开始时的行棋方视角，正值有利、负值不利；这是局势指数，不是胜率。';
+    const description = '先计算未舍入的 tanh(0.015 × cp)，再用 PCHIP 保单调三次 Hermite 插值；分界为 0.5、0.7、0.9、0.99，保留 6 位小数。按本次搜索开始时的行棋方视角，正值有利、负值不利；这是局势指数，不是胜率。';
     $('score').title = description;
     if (!score || !Number.isFinite(score.value) || !['cp', 'mate'].includes(score.type)) {
       $('score').textContent = '评估 -';
@@ -74,15 +108,15 @@
       $('score-meaning').textContent = score.value > 0 ? '引擎发现强制杀棋' : score.value < 0 ? '引擎发现对方强制杀棋' : '引擎报告终局杀棋';
       return;
     }
-    // The coefficient controls the curve's slope, not the input range. Keep finite
-    // scores inside the open interval even when floating point tanh saturates.
-    const index = Math.max(-0.999999, Math.min(0.999999, Math.tanh(score.value * 0.015)));
+    // Interpolate the unrounded v2.6.0 value: its displayed six decimals lose
+    // information near the final anchors. Clamp only after interpolation.
+    const index = Math.max(-0.999999, Math.min(0.999999, interpolateEvaluation(Math.tanh(score.value * 0.015))));
     const rounded = Number(index.toFixed(6));
     $('score').textContent = `评估 ${rounded > 0 ? '+' : ''}${(rounded === 0 ? 0 : rounded).toFixed(6)}`;
-    const magnitude = Math.abs(score.value / 100);
+    const magnitude = Math.abs(rounded);
     const positive = score.value > 0;
-    $('score-meaning').textContent = magnitude < 0.5 ? '均势' : magnitude < 1.5 ? (positive ? '稍优' : '稍劣') :
-      magnitude < 3 ? (positive ? '明显优势' : '明显劣势') : magnitude < 6 ? (positive ? '大幅优势' : '大幅劣势') :
+    $('score-meaning').textContent = magnitude < 0.5 ? '均势' : magnitude < 0.7 ? (positive ? '稍优' : '稍劣') :
+      magnitude < 0.9 ? (positive ? '明显优势' : '明显劣势') : magnitude < 0.99 ? (positive ? '大幅优势' : '大幅劣势') :
       (positive ? '接近胜势' : '接近败势');
   }
   setEvaluation(null);

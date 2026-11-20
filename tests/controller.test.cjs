@@ -217,7 +217,9 @@ async function controller(initial = {}, options = {}) {
       destroy() { destroyCount++; }
     },
   });
-  vm.runInContext(source, context);
+  const controllerSource = options.exposeEvaluationMapping ? source.replace('  setEvaluation(null);',
+    '  globalThis.__testInterpolateEvaluation = interpolateEvaluation;\n  setEvaluation(null);') : source;
+  vm.runInContext(controllerSource, context);
   await flush();
   const advance = async ms => {
     const end = now + ms;
@@ -919,12 +921,12 @@ test('adaptive result displays importance and its allocated compute budget', asy
   assert.ok(app.elements.get('importance').title.length > 0);
 });
 
-test('evaluation presents only a signed six-decimal tanh index and a plain-language meaning', async () => {
+test('evaluation presents only the signed six-decimal interpolated index and a plain-language meaning', async () => {
   for (const [value, expectedIndex, meaning] of [
-    [10, '+0.148885', '均势'],
-    [20, '+0.291313', '均势'],
-    [100, '+0.905148', '稍优'],
-    [-104, '-0.915420', '稍劣'],
+    [10, '+0.132152', '均势'],
+    [20, '+0.249812', '均势'],
+    [100, '+0.617918', '稍优'],
+    [-104, '-0.626702', '稍劣'],
     [0, '0.000000', '均势'],
     [-0, '0.000000', '均势'],
   ]) {
@@ -940,7 +942,7 @@ test('evaluation presents only a signed six-decimal tanh index and a plain-langu
   }
 });
 
-test('evaluation categories change at documented raw-score boundaries in both directions', async () => {
+test('evaluation categories follow the displayed rounded index at each interpolation boundary', async () => {
   for (const [magnitude, positive, negative] of [
     [49, '均势', '均势'],
     [50, '稍优', '稍劣'],
@@ -950,12 +952,63 @@ test('evaluation categories change at documented raw-score boundaries in both di
     [300, '大幅优势', '大幅劣势'],
     [599, '大幅优势', '大幅劣势'],
     [600, '接近胜势', '接近败势'],
+    // SciPy PchipInterpolator + brentq reference inputs straddle six-place
+    // rounding thresholds. Classifying the unrounded value would disagree.
+    [49.999898458268696, '均势', '均势'],
+    [49.99993230547399, '稍优', '稍劣'],
+    [149.9993780950908, '稍优', '稍劣'],
+    [149.99958539576818, '明显优势', '明显劣势'],
+    [299.9968848641588, '明显优势', '明显劣势'],
+    [299.9979232099018, '大幅优势', '大幅劣势'],
+    [599.4038294253768, '大幅优势', '大幅劣势'],
+    [599.6013561071215, '接近胜势', '接近败势'],
   ]) {
     for (const [value, expected] of [[magnitude, positive], [-magnitude, negative]]) {
       const app = await controller();
       await app.click('single');
       await app.resolveSearch(0, { score: { type: 'cp', value } });
       assert.equal(app.elements.get('score-meaning').textContent, expected, `Raw score ${value}`);
+    }
+  }
+});
+
+test('the monotone interpolation passes exact normalized-score anchors and independent SciPy reference points', async () => {
+  const app = await controller({}, { exposeEvaluationMapping: true });
+  const interpolate = app.context.__testInterpolateEvaluation;
+  assert.equal(typeof interpolate, 'function');
+  // Generated independently with scipy.interpolate.PchipInterpolator 1.13.1
+  // using the six specified literal knots; this table contains no local slope
+  // calculation or copy of the production interpolation algorithm.
+  for (const [input, expected] of [
+    [0, 0], [.635148952387, .5], [.978026114739, .7],
+    [.999753210848, .9], [.999999969540, .99], [1, 1],
+    [.1, .08980637926161333], [.3, .2567163987811563],
+    [.5, .4072360035060507], [.8, .562688126135245],
+    [.9, .61380843484857], [.98, .7028247807609241],
+    [.99, .7417799081954333], [.999, .8810715671772865],
+    [.9998, .9014314174680306], [.99999, .9795598145123924],
+    [.999999, .988945866667774], [.99999998, .9919583610118281],
+    [.99999999, .9959952682385957],
+  ]) {
+    assert.ok(Math.abs(interpolate(input) - expected) < 2e-12, `Independent reference at ${input}`);
+    if (input) assert.ok(Math.abs(interpolate(-input) + expected) < 2e-12, `Odd symmetry at ${input}`);
+  }
+});
+
+test('the interpolation is bounded, monotone, symmetric and free of overshoot throughout every knot interval', async () => {
+  const app = await controller({}, { exposeEvaluationMapping: true });
+  const interpolate = app.context.__testInterpolateEvaluation;
+  const knots = [[0, 0], [.635148952387, .5], [.978026114739, .7], [.999753210848, .9], [.999999969540, .99], [1, 1]];
+  for (let interval = 0; interval < knots.length - 1; interval++) {
+    const [left, minimum] = knots[interval], [right, maximum] = knots[interval + 1];
+    let previous = minimum;
+    for (let step = 0; step <= 1000; step++) {
+      const input = left + (right - left) * step / 1000;
+      const result = interpolate(input);
+      assert.ok(Number.isFinite(result) && result >= minimum - 1e-12 && result <= maximum + 1e-12, `No interval overshoot at ${input}`);
+      assert.ok(result >= previous - 1e-12, `No local reversal at ${input}`);
+      assert.ok(Math.abs(interpolate(-input) + result) < 1e-12, `Odd symmetry at ${input}`);
+      previous = result;
     }
   }
 });
@@ -987,7 +1040,7 @@ test('evaluation keeps the searching side perspective for either player color', 
     const app = await controller({ turn: side, playerSide: side });
     await app.click('single');
     await app.resolveSearch(0, { score: { type: 'cp', value: -300 } });
-    assert.equal(app.elements.get('score').textContent, '评估 -0.999753');
+    assert.equal(app.elements.get('score').textContent, '评估 -0.900000');
     assert.equal(app.elements.get('score-meaning').textContent, '大幅劣势');
   }
 });

@@ -10,6 +10,28 @@ const results = path.join(project, 'test-results');
 const tempRoot = path.resolve(os.tmpdir());
 const initialFen = 'rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR r - - 0 1';
 
+// Independent SciPy PchipInterpolator reference coefficients, expressed in
+// each interval's normalized coordinate. Do not import the production mapper.
+function referenceEvaluation(cp) {
+  const segments = [
+    [0, .635148952387, .003501168314592769, -.08761269627027911, .5841115279556863, 0],
+    [.635148952387, .978026114739, .3337808544377575, -.36018306964360114, .22640221520584358, .5],
+    [.978026114739, .999753210848, .19743013869620432, -.029581199392770027, .03215106069656577, .7],
+    [.999753210848, .999999969540, .09578825340447801, -.012208233562085181, .006419980157607156, .9],
+    [.999999969540, 1, -.009965516182746442, .01993226524626417, .00003325093648228132, .99],
+  ];
+  const raw = Math.tanh(cp * .015), magnitude = Math.abs(raw);
+  const [left, right, a, b, c, d] = segments.find(segment => magnitude <= segment[1]) || segments.at(-1);
+  const t = (magnitude - left) / (right - left);
+  const value = Math.max(-.999999, Math.min(.999999, Math.sign(raw) * (((a * t + b) * t + c) * t + d)));
+  const rounded = Number(value.toFixed(6));
+  const level = Math.abs(rounded);
+  const meaning = level < .5 ? '均势' : cp > 0 ?
+    level < .7 ? '稍优' : level < .9 ? '明显优势' : level < .99 ? '大幅优势' : '接近胜势' :
+    level < .7 ? '稍劣' : level < .9 ? '明显劣势' : level < .99 ? '大幅劣势' : '接近败势';
+  return { text: '评估 ' + (rounded > 0 ? '+' : '') + (rounded === 0 ? 0 : rounded).toFixed(6), meaning };
+}
+
 const fixture = `<!doctype html><html><head><meta charset="utf-8"><title>Puzzle contract fixture</title>
 <style>body{margin:32px;background:#eef3ef;font:15px system-ui}#game-grid{position:relative;width:450px;height:500px;background:#e1e8df;border:1px solid #81937d}.square{position:absolute;width:50px;height:50px;box-sizing:border-box;border:1px solid #a8b5a2}.square-target{width:100%;height:100%}.pieces-container{position:absolute;inset:0;pointer-events:none}.pieces-container>div{position:absolute;width:50px;height:50px}.piece{position:absolute;inset:4px;display:grid;place-items:center;background:#fff;border:2px solid #465a45;border-radius:50%;pointer-events:auto;font-size:20px}.selected-piece{outline:3px solid #22a168}</style></head>
 <body><h1>Local puzzle and analysis fixture</h1><div id="game-grid"></div><pre id="fixture-state"></pre><script>
@@ -138,14 +160,9 @@ async function main() {
       const score = reply.response.score;
       assert.equal(score?.type, 'cp', 'The real starting-position evaluation is a finite centipawn result');
       assert.ok(Number.isFinite(score.value));
-      const index = Math.max(-.999999, Math.min(.999999, Math.tanh(score.value * .015)));
-      const numeric = Math.abs(index) < .0000005 ? '0.000000' : (index > 0 ? '+' : '-') + Math.abs(index).toFixed(6);
-      assert.equal(value.score, '评估 ' + numeric, 'The displayed six-decimal index matches the real engine score');
-      const magnitude = Math.abs(score.value);
-      const meaning = magnitude < 50 ? '均势' : score.value > 0 ?
-        magnitude < 150 ? '稍优' : magnitude < 300 ? '明显优势' : magnitude < 600 ? '大幅优势' : '接近胜势' :
-        magnitude < 150 ? '稍劣' : magnitude < 300 ? '明显劣势' : magnitude < 600 ? '大幅劣势' : '接近败势';
-      assert.equal(value.scoreMeaning, meaning, 'The real engine score receives the matching plain-language meaning');
+      const expected = referenceEvaluation(score.value);
+      assert.equal(value.score, expected.text, 'The displayed six-decimal PCHIP index matches the independent SciPy reference for the real engine score');
+      assert.equal(value.scoreMeaning, expected.meaning, 'The rounded displayed index receives the matching plain-language meaning');
       assert.equal(value.hasRawScore, false, 'The panel contains no separate raw-score field');
       assert.notEqual(value.score, '评估 ' + (score.value / 100).toFixed(2), 'The old raw score is not rendered');
       return { requestId: reply.requestId, engineScore: score, displayed: value.score, meaning: value.scoreMeaning };

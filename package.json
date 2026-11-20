@@ -1,7 +1,7 @@
 {
   "name": "xiangqi-quick-hands",
   "private": true,
-  "version": "2.6.0",
+  "version": "2.6.1",
   "description": "Pikafish NNUE extension for Xiangqi.com games, puzzles and analysis with resizable UI and background play",
   "repository": {"type": "git", "url": "https://github.com/zhaopengbo-0702/xiangqi-quick-hands.git"},
   "homepage": "https://github.com/zhaopengbo-0702/xiangqi-quick-hands#readme",
