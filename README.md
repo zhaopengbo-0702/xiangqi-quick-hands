@@ -1,20 +1,20 @@
-# 象棋快手 v2.7.4
+# 象棋快手 v2.8.0
 
 [下载发行版](https://github.com/zhaopengbo-0702/xiangqi-quick-hands/releases/latest) · [逐版更新记录](CHANGELOG.md) · [评估公式](docs/evaluation-mapping.md) · [问题反馈](https://github.com/zhaopengbo-0702/xiangqi-quick-hands/issues) · [自动检查](https://github.com/zhaopengbo-0702/xiangqi-quick-hands/actions)
 
 Chrome / Edge 浏览器扩展，内置 Pikafish WASM 与 NNUE，支持 Xiangqi.com 对局、题库和棋盘分析。面板支持拖动、整体缩放、后台运行，以及运行中调整搜索参数。
 
-**2.7.4** 移除图下常驻评分与默认提示，鼠标悬停、手指触摸记录点或键盘聚焦时，在图内浮层显示手数和评估值，离开后隐藏。曲线继续按自己控制的棋子计算，并保留第 0 手真实开局采集。评分公式见 [评估转换与插值函数](docs/evaluation-mapping.md)。
+**2.8.0** 新增常驻“平均优势”，将本局平滑评估曲线的带符号积分除以记录手数跨度，归一化到 −1 至 +1。正值表示自己在记录区间平均占优，负值表示对方平均占优。计算公式见 [平均优势](docs/cumulative-advantage.md)。
 
 ## 安装与更新
 
-使用 Chrome / Edge 116 或更新版本，下载 [xiangqi-quick-hands-v2.7.4.zip](https://github.com/zhaopengbo-0702/xiangqi-quick-hands/releases/download/v2.7.4/xiangqi-quick-hands-v2.7.4.zip)。安装包内含扩展、引擎、网络、对应源码和许可证。
+使用 Chrome / Edge 116 或更新版本，下载 [xiangqi-quick-hands-v2.8.0.zip](https://github.com/zhaopengbo-0702/xiangqi-quick-hands/releases/download/v2.8.0/xiangqi-quick-hands-v2.8.0.zip)。安装包内含扩展、引擎、网络、对应源码和许可证。
 
 1. 解压安装包，保留整个目录。
 2. Edge 打开 `edge://extensions`；Chrome 打开 `chrome://extensions`。
 3. 开启“开发人员模式”，点击“加载解压缩的扩展”，选择直接包含 `manifest.json` 的目录。
 4. 更新旧版时，用新版文件替换原目录，再点击扩展的“重新加载”。
-5. 刷新棋盘，确认面板标题为 **象棋快手 v2.7.4**。等待“引擎就绪”，点击“开始自动”或“走一步”。首次预热需要数秒。
+5. 刷新棋盘，确认面板标题为 **象棋快手 v2.8.0**。等待“引擎就绪”，点击“开始自动”或“走一步”。首次预热需要数秒。
 
 源码安装时选择仓库中的 `extension` 文件夹。浏览器工具栏的扩展按钮可以展开或收起面板，安装目录用于浏览器持续加载扩展。安装包使用带版本号的文件名，校验值见同版 `SHA256SUMS.txt`。
 
@@ -42,7 +42,7 @@ Chrome / Edge 浏览器扩展，内置 Pikafish WASM 与 NNUE，支持 Xiangqi.c
 
 ## 本局评估走势
 
-![象棋快手 v2.7.4 本局评估走势](docs/assets/evaluation-history-panel.png)
+![象棋快手 v2.8.0 本局评估走势](docs/assets/evaluation-history-panel.png)
 
 界面示例，使用模拟评估数据。
 
@@ -55,6 +55,14 @@ Chrome / Edge 浏览器扩展，内置 Pikafish WASM 与 NNUE，支持 Xiangqi.c
 开启“开始自动”或“走一步”后，系统会真实计算本局初始局面，记录第 0 手评估；这次开局采集只做分析，不落子。开局点来自引擎评分，不预设为零。执黑时也会先补齐开局点，再记录正常行棋时的评估点。
 
 同一手再次计算会更新对应点。暂停、收起面板或重新连接引擎后继续保留本局记录；切换对局、题目或识别人机重新开局时自动清零。中途进入时，也可根据网站提供的本局初始局面补采第 0 手；其他未计算过的历史手数不补造。开局采集失败时保留空缺并稍后重试，自动行棋继续运行。刷新页面后重新开始记录。
+
+## 平均优势
+
+面板常驻显示“平均优势”：先对同一条 PCHIP 曲线在首末实际记录点之间做带符号积分，再除以记录手数跨度。它与评估值使用同一尺度，范围为 −1 至 +1，不再随对局长度不断累加。正值表示自己在该区间平均占优，负值表示对方平均占优；当前评估反映眼下局面。
+
+持续保持 +0.5 时，无论记录跨度多长，平均优势都是 +0.5。若前 20 手平均 +0.5、后 10 手平均 −0.8，原始积分为 +2，平均优势为 +2 ÷ 30 ≈ +0.066667；最后一刻仍可处于 −0.8 的劣势。这是按单方手数加权的平均评估，不是概率，也不再套用 tanh。
+
+无记录点、只有一个点或跨度为零时显示“平均优势 -”。只计算首末实际记录点之间的区间，不向外延伸。补采开局点、同一手重新计算或视角改变时同步重算，新局自动清零。完整定义、Hermite 原函数和归一化积分见 [平均优势的计算公式](docs/cumulative-advantage.md)，有界性及保形条件的[严格数学证明](docs/cumulative-advantage.md#范围保证的严格证明)也一并公开。
 
 ## 评估显示
 

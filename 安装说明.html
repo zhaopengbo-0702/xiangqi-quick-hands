@@ -2,17 +2,17 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>象棋快手 v2.7.4 · 安装说明</title>
+<title>象棋快手 v2.8.0 · 安装说明</title>
 <style>*{box-sizing:border-box}body{margin:0;background:#f5f7f6;color:#24352b;font:16px/1.8 "Microsoft YaHei",system-ui,sans-serif}main{max-width:780px;margin:36px auto;padding:0 24px 40px}header{display:flex;gap:14px;align-items:center;border-bottom:1px solid #d9e0db;padding-bottom:20px}header img{width:54px;height:54px}h1{margin:0;font-size:27px}header p{margin:0;color:#6b776f}h2{font-size:19px;margin:26px 0 8px}ol{padding-left:24px}li{margin:10px 0}code{font:14px Consolas,monospace;background:#e9eeeb;padding:3px 7px;border-radius:3px;overflow-wrap:anywhere}a{color:#176d4d}table{width:100%;border-collapse:collapse;margin:12px 0}th,td{text-align:left;padding:10px 12px;border-bottom:1px solid #d9e0db}th{color:#637268;font-weight:500}p{margin:10px 0}footer{margin-top:28px;border-top:1px solid #d9e0db;padding-top:16px;font-size:14px}@media(max-width:500px){main{margin-top:20px;padding:0 16px 28px}h1{font-size:23px}th,td{padding:8px 5px}}</style>
 </head>
 <body><main>
-<header><img src="extension/icons/icon128.png" alt="象棋快手图标"><div><h1>象棋快手 v2.7.4</h1><p>Pikafish NNUE · 对局、题库与棋盘分析</p></div></header>
+<header><img src="extension/icons/icon128.png" alt="象棋快手图标"><div><h1>象棋快手 v2.8.0</h1><p>Pikafish NNUE · 对局、题库与棋盘分析</p></div></header>
 <h2>安装与更新</h2>
 <ol>
-<li>从 <a href="https://github.com/zhaopengbo-0702/xiangqi-quick-hands/releases/latest">GitHub Releases</a> 下载 <code>xiangqi-quick-hands-v2.7.4.zip</code> 并解压。</li>
+<li>从 <a href="https://github.com/zhaopengbo-0702/xiangqi-quick-hands/releases/latest">GitHub Releases</a> 下载 <code>xiangqi-quick-hands-v2.8.0.zip</code> 并解压。</li>
 <li>Edge 打开 <code>edge://extensions</code>，Chrome 打开 <code>chrome://extensions</code>，开启“开发人员模式”。</li>
 <li>点击“加载解压缩的扩展”，选择直接包含 <code>manifest.json</code> 的目录。源码安装时选择 <a href="extension/">extension 文件夹</a>，保留安装目录供浏览器加载。</li>
-<li>更新旧版时，用新版文件替换原目录并点击“重新加载”。刷新棋盘，确认面板标题显示 v2.7.4。</li>
+<li>更新旧版时，用新版文件替换原目录并点击“重新加载”。刷新棋盘，确认面板标题显示 v2.8.0。</li>
 <li>进入自己的对局，等待“引擎就绪”，点击“开始自动”或“走一步”。首次预热需要数秒。</li>
 </ol>
 <p>适用 Chrome / Edge 116 或更新版本。浏览器独立包内含 WASM 引擎、NNUE、对应源码和许可证。</p>
@@ -25,6 +25,9 @@
 <p>普通评分沿用现有六位局势指数；非零杀棋点标记在 ±1，参与对局时标注我方或对方杀棋，“杀棋 0”跳过图表记录。数字评估继续显示“杀棋 N”。同一手再次计算更新对应点，暂停、收起面板和重连引擎后保留本局记录。</p>
 <p>启动后会真实计算本局初始局面，补齐第 0 手评估；开局采集只做分析，不落子，也不预设零分。执黑时同样先采集开局点，再记录正常行棋评估。采集失败不会暂停自动行棋，稍后重试。</p>
 <p>切换对局、题目或识别人机重新开局后自动清零。中途进入可根据合法初始局面补采开局点，其他未计算过的历史手数不补造。</p>
+<h2>平均优势</h2>
+<p>面板常驻显示平滑评估曲线的带符号积分除以首末记录手数跨度，范围为 −1 至 +1。正值表示自己平均占优，负值表示对方平均占优；每手为一个单方步。无点、单点或跨度为零时显示“-”，新局自动清零。</p>
+<p>平均优势反映记录区间内按手数加权的平均评估，当前评估反映眼下局面。持续保持 +0.5 时，平均优势始终为 +0.5，不随跨度累加，也不另套 tanh。完整公式见 <a href="https://github.com/zhaopengbo-0702/xiangqi-quick-hands/blob/main/docs/cumulative-advantage.md">平均优势数学说明</a>。</p>
 <h2>读懂面板</h2>
 <p>评估以六位小数显示，正值有利、负值不利，零附近为均势。分档依次为均势、稍优或稍劣、明显优势或劣势、大幅优势或劣势、接近胜势或败势。强制杀棋显示“杀棋 N”。</p>
 <p>深度表示向后搜索的单方步数；重要性用于分配本步计算时间；预算是计划搜索时间，耗时包含读取、计算和落子确认。底部线路展示引擎预测的双方后续走法。</p>
@@ -43,5 +46,5 @@
 <h2>连接恢复</h2>
 <p>更新扩展后刷新棋盘，等待新面板就绪。页面提示“插件已更新，请重新连接”时，可点击浏览器工具栏的扩展按钮恢复面板，再重新开启自动行棋。</p>
 <p>开发工具、原生兼容性和旧版组件管理见 <a href="CONTRIBUTING.md">开发说明</a>。源码与网络权重的许可见 <a href="THIRD_PARTY_NOTICES.md">第三方授权与来源</a>。</p>
-<footer><a href="README.md">完整说明</a> · <a href="CHANGELOG.md">逐版更新记录</a> · 版本 2.7.4</footer>
+<footer><a href="README.md">完整说明</a> · <a href="CHANGELOG.md">逐版更新记录</a> · 版本 2.8.0</footer>
 </main></body></html>
