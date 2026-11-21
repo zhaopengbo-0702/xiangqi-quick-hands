@@ -41,6 +41,9 @@
     .primary{background:#176d4d;color:white;border-color:#176d4d}.primary img{filter:brightness(0) invert(1)}.primary.running{background:#a52b32;border-color:#a52b32}
     .result{margin-top:14px;border-top:1px solid #e7eae8;padding-top:11px;display:flex;justify-content:space-between;align-items:center;gap:8px}.move{font-family:Consolas,monospace;font-size:23px;font-weight:600;color:#224b38;white-space:nowrap}
     #side{font-size:14px;color:#58665e}.metrics{display:flex;flex-wrap:wrap;justify-content:space-between;color:#58665e;font-size:14px;gap:5px;margin-top:7px;font-variant-numeric:tabular-nums}.score-meaning{font-size:14px;line-height:1.6;color:#58665e;margin-top:4px;overflow-wrap:anywhere}.pv{color:#58665e;font-family:Consolas,monospace;font-size:14px;line-height:1.6;overflow-wrap:anywhere;margin-top:9px;max-height:5em;overflow:auto}
+    .evaluation-history{margin-top:12px;border-top:1px solid #e7eae8;padding-top:10px}.evaluation-heading{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:14px}.evaluation-heading b{font-size:15px;color:#263a30}.evaluation-heading span{color:#58665e;font-variant-numeric:tabular-nums}
+    .evaluation-plot{position:relative;margin-top:6px;border:1px solid #e0e7e2;border-radius:5px;overflow:hidden;background:#fafcfb}#evaluation-chart{display:block;width:100%;height:auto;overflow:visible;font-family:inherit;font-size:12px;color:#58665e;touch-action:pan-y}.evaluation-grid{stroke:#dce4de;stroke-width:1}.evaluation-zero{stroke:#9baea1;stroke-dasharray:3 3}.evaluation-axis{fill:#58665e}.evaluation-line{fill:none;stroke:#176d4d;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}.evaluation-point{fill:#176d4d;stroke:#fff;stroke-width:1.2;cursor:crosshair}.evaluation-point[data-mate=true]{fill:#ad393d}.evaluation-point:focus{outline:none;stroke:#263a30;stroke-width:2}.evaluation-hit{fill:transparent;pointer-events:all;cursor:crosshair}#evaluation-cursor{stroke:#7d9486;stroke-width:1;stroke-dasharray:3 3;pointer-events:none}#evaluation-active{fill:#fff;stroke:#176d4d;stroke-width:2;pointer-events:none}
+    #evaluation-empty{position:absolute;inset:0;display:grid;place-items:center;font-size:14px;color:#63756a;pointer-events:none}#evaluation-tooltip{min-height:22px;margin-top:5px;font-size:13px;line-height:1.6;color:#485d51;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.evaluation-legend{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:#63756a}
     footer{display:flex;flex-wrap:wrap;gap:5px;align-items:center;justify-content:space-between;padding:9px 16px 9px 12px;background:#f7f9f8;border-top:1px solid #e7eae8;color:#58665e;font-size:14px}
     .hidden{display:none!important}:focus-visible{outline:2px solid #158a60;outline-offset:2px}
   </style><section id="panel" class="panel" aria-label="象棋快手控制台">
@@ -54,6 +57,13 @@
   <div class="actions"><button id="auto" class="command primary" disabled>${icon('play','开始自动')}</button><button id="single" class="command" disabled>${icon('step-forward','走一步')}</button></div>
   <div class="result"><output id="move" class="move">-</output><span id="side">-</span></div><div class="metrics"><span id="depth">深度 -</span><span id="score">评估 -</span><span id="elapsed">耗时 -</span></div>
   <div id="score-meaning" class="score-meaning">暂无有效评估</div>
+  <section class="evaluation-history" aria-label="本局评估走势"><div class="evaluation-heading"><b>本局评估走势</b><span id="evaluation-summary">已记录 0 个局面</span></div>
+  <div class="evaluation-plot"><svg id="evaluation-chart" viewBox="0 0 332 154" role="group" aria-label="本局评估曲线，横轴为手数，纵轴为红方视角评估，范围负1到正1">
+  <path class="evaluation-grid" d="M32,14H320 M32,72H320 M32,130H320"/><path class="evaluation-grid evaluation-zero" d="M32,72H320"/>
+  <g class="evaluation-axis"><text x="25" y="18" text-anchor="end">+1</text><text x="25" y="76" text-anchor="end">0</text><text x="25" y="134" text-anchor="end">−1</text><text id="evaluation-x-start" x="32" y="147">0</text><text id="evaluation-x-middle" x="176" y="147" text-anchor="middle">5</text><text id="evaluation-x-end" x="320" y="147" text-anchor="end">10 手</text></g>
+  <rect x="32" y="14" width="288" height="58" fill="#b9383d" fill-opacity=".025"/><rect x="32" y="72" width="288" height="58" fill="#253a30" fill-opacity=".025"/>
+  <path id="evaluation-line" class="evaluation-line" d=""/><g id="evaluation-points"></g><path id="evaluation-cursor" class="hidden" d=""/><circle id="evaluation-active" class="hidden" r="4"/>
+  </svg><div id="evaluation-empty">等待首个评估</div></div><div id="evaluation-tooltip">每次有效计算记录一个点</div><div class="evaluation-legend"><span>红方视角 · 正值红优 / 负值黑优</span><span>新局自动清零</span></div></section>
   <div class="importance"><span id="importance">重要性 -</span><span id="allocated">预算 -</span></div><div id="pv" class="pv"></div>
   <div id="stop-reason" class="stop-reason hidden" role="status"></div>
   </main><footer><span id="footer">最多 5 秒 · 至少 6 层</span><span id="plies">第 0 手</span></footer></div>
@@ -95,6 +105,12 @@
     const result = ((segment.A * t + segment.B) * t + segment.C) * t + segment.D;
     return Math.sign(value) * result;
   }
+  function normalizedEvaluation(score) {
+    if (score?.type !== 'cp' || !Number.isFinite(score.value)) return null;
+    const index = Math.max(-0.999999, Math.min(0.999999, interpolateEvaluation(Math.tanh(score.value * 0.015))));
+    const rounded = Number(index.toFixed(6));
+    return rounded === 0 ? 0 : rounded;
+  }
   function setEvaluation(score) {
     const description = '评估范围 −1～+1，保留六位小数；正值有利，负值不利。按本次计算的行棋方判断。';
     $('score').title = description;
@@ -110,8 +126,7 @@
     }
     // Interpolate the unrounded v2.6.0 value: its displayed six decimals lose
     // information near the final anchors. Clamp only after interpolation.
-    const index = Math.max(-0.999999, Math.min(0.999999, interpolateEvaluation(Math.tanh(score.value * 0.015))));
-    const rounded = Number(index.toFixed(6));
+    const rounded = normalizedEvaluation(score);
     $('score').textContent = `评估 ${rounded > 0 ? '+' : ''}${(rounded === 0 ? 0 : rounded).toFixed(6)}`;
     const magnitude = Math.abs(rounded);
     const positive = score.value > 0;
@@ -149,6 +164,131 @@
   let panelLayout = null;
   let layoutTouched = false;
   let panelInteraction = null;
+
+  let evaluationGameKey = null;
+  let evaluationLastPly = null;
+  let evaluationPoints = [];
+  let evaluationMaxPly = 10;
+  const evaluationChart = $('evaluation-chart');
+  const chartX = ply => 32 + 288 * ply / evaluationMaxPly;
+  const chartY = value => 72 - 58 * value;
+  const chartCoordinate = value => Number(value.toFixed(6));
+  const signedEvaluation = value => `${value > 0 ? '+' : ''}${value.toFixed(6)}`;
+  function evaluationPointLabel(point) {
+    return `第 ${point.ply} 手 · 红方视角 ${point.mate ? `${point.value > 0 ? '红方' : '黑方'}杀棋 ${Math.abs(point.mate)}` : signedEvaluation(point.value)}`;
+  }
+  function showEvaluationPoint(index) {
+    const point = evaluationPoints[index];
+    if (!point) return;
+    $('evaluation-tooltip').textContent = evaluationPointLabel(point);
+    const x = chartCoordinate(chartX(point.ply));
+    $('evaluation-cursor').setAttribute('d', `M${x},14V130`);
+    $('evaluation-active').setAttribute('cx', x);
+    $('evaluation-active').setAttribute('cy', chartCoordinate(chartY(point.value)));
+    $('evaluation-cursor').classList.remove('hidden');
+    $('evaluation-active').classList.remove('hidden');
+  }
+  function hideEvaluationPoint() {
+    $('evaluation-cursor').classList.add('hidden');
+    $('evaluation-active').classList.add('hidden');
+    $('evaluation-tooltip').textContent = evaluationPoints.length ? evaluationPointLabel(evaluationPoints[evaluationPoints.length - 1]) : '每次有效计算记录一个点';
+  }
+  // PCHIP in actual ply coordinates: C1 joins without overshooting adjacent samples.
+  function evaluationCurvePath(points) {
+    if (!points.length) return '';
+    const xy = point => `${chartCoordinate(chartX(point.ply))},${chartCoordinate(chartY(point.value))}`;
+    let path = `M${xy(points[0])}`;
+    if (points.length === 1) return path;
+    const h = points.slice(1).map((point, i) => point.ply - points[i].ply);
+    const delta = h.map((width, i) => (points[i + 1].value - points[i].value) / width);
+    const slopes = new Array(points.length).fill(0);
+    const edge = (h0, h1, d0, d1) => {
+      const slope = ((2 * h0 + h1) * d0 - h0 * d1) / (h0 + h1);
+      if (Math.sign(slope) !== Math.sign(d0)) return 0;
+      return Math.sign(d0) !== Math.sign(d1) && Math.abs(slope) > 3 * Math.abs(d0) ? 3 * d0 : slope;
+    };
+    if (points.length === 2) slopes.fill(delta[0]);
+    else {
+      slopes[0] = edge(h[0], h[1], delta[0], delta[1]);
+      for (let i = 1; i < points.length - 1; i++) {
+        if (delta[i - 1] * delta[i] <= 0) continue;
+        const w1 = 2 * h[i] + h[i - 1], w2 = h[i] + 2 * h[i - 1];
+        slopes[i] = (w1 + w2) / (w1 / delta[i - 1] + w2 / delta[i]);
+      }
+      const last = h.length - 1;
+      slopes[points.length - 1] = edge(h[last], h[last - 1], delta[last], delta[last - 1]);
+    }
+    for (let i = 0; i < h.length; i++) {
+      const first = { ply: points[i].ply + h[i] / 3, value: points[i].value + h[i] * slopes[i] / 3 };
+      const second = { ply: points[i + 1].ply - h[i] / 3, value: points[i + 1].value - h[i] * slopes[i + 1] / 3 };
+      path += ` C${xy(first)} ${xy(second)} ${xy(points[i + 1])}`;
+    }
+    return path;
+  }
+  function renderEvaluationHistory() {
+    const last = evaluationPoints[evaluationPoints.length - 1];
+    const maximum = Math.max(10, last?.ply || 0);
+    const step = maximum <= 20 ? 5 : maximum <= 100 ? 10 : maximum <= 200 ? 25 : 50;
+    evaluationMaxPly = Math.ceil(maximum / step) * step;
+    $('evaluation-x-middle').textContent = String(evaluationMaxPly / 2);
+    $('evaluation-x-end').textContent = `${evaluationMaxPly} 手`;
+    $('evaluation-line').setAttribute('d', evaluationCurvePath(evaluationPoints));
+    $('evaluation-points').innerHTML = evaluationPoints.map(point => {
+      const label = evaluationPointLabel(point);
+      return `<circle class="evaluation-point" cx="${chartCoordinate(chartX(point.ply))}" cy="${chartCoordinate(chartY(point.value))}" r="${point.mate ? 3.3 : 2.5}" tabindex="0" role="img" data-ply="${point.ply}" data-value="${point.value}" data-mate="${Boolean(point.mate)}" aria-label="${label}"><title>${label}</title></circle>`;
+    }).join('');
+    $('evaluation-summary').textContent = `已记录 ${evaluationPoints.length} 个局面`;
+    evaluationChart.dataset.count = String(evaluationPoints.length);
+    $('evaluation-empty').classList.toggle('hidden', evaluationPoints.length > 0);
+    hideEvaluationPoint();
+  }
+  function clearEvaluationHistory() {
+    evaluationGameKey = null;
+    evaluationLastPly = null;
+    evaluationPoints = [];
+    renderEvaluationHistory();
+  }
+  function observeEvaluationGame(snapshot) {
+    if (snapshot.historyMode || snapshot.loading || snapshot.hasPreMove || snapshot.connected === false) return;
+    // Analysis snapshots use their current FEN as initFen, so their gameKey changes on each move.
+    const key = snapshot.mode === 'analysis' ? `analysis:${location.pathname}` : snapshot.gameKey;
+    if (!key || !Number.isSafeInteger(snapshot.moveCount) || snapshot.moveCount < 0) return;
+    // A player using black may first see the new opening after red has already moved.
+    const restarted = evaluationGameKey === key && snapshot.moveCount <= 1 && evaluationLastPly > snapshot.moveCount && snapshot.active;
+    if (restarted) lastPlayed = null;
+    if (evaluationGameKey !== key || restarted) clearEvaluationHistory();
+    evaluationGameKey = key;
+    evaluationLastPly = snapshot.moveCount;
+  }
+  function recordEvaluation(score, snapshot) {
+    if (snapshot.historyMode || !['red', 'black'].includes(snapshot.turn) || !Number.isSafeInteger(snapshot.moveCount) || snapshot.moveCount < 0) return;
+    const mate = score?.type === 'mate' && Number.isFinite(score.value) ? score.value : 0;
+    const normalized = normalizedEvaluation(score);
+    if (normalized === null && mate === 0) return;
+    const value = (mate ? Math.sign(mate) : normalized) * (snapshot.turn === 'red' ? 1 : -1);
+    evaluationPoints = evaluationPoints.filter(point => point.ply !== snapshot.moveCount);
+    evaluationPoints.push({ ply: snapshot.moveCount, value: value === 0 ? 0 : value, mate });
+    evaluationPoints.sort((a, b) => a.ply - b.ply);
+    renderEvaluationHistory();
+  }
+  evaluationChart.onpointermove = event => {
+    if (!evaluationPoints.length) return;
+    const rect = evaluationChart.getBoundingClientRect();
+    const ply = ((event.clientX - rect.left) * 332 / rect.width - 32) * evaluationMaxPly / 288;
+    let nearest = 0;
+    for (let i = 1; i < evaluationPoints.length; i++) {
+      if (Math.abs(evaluationPoints[i].ply - ply) < Math.abs(evaluationPoints[nearest].ply - ply)) nearest = i;
+    }
+    showEvaluationPoint(nearest);
+  };
+  evaluationChart.onpointerleave = hideEvaluationPoint;
+  function onEvaluationFocus(event) {
+    const point = event.target.closest?.('[data-ply]');
+    if (point) showEvaluationPoint(evaluationPoints.findIndex(sample => sample.ply === Number(point.dataset.ply)));
+  }
+  evaluationChart.addEventListener('focusin', onEvaluationFocus);
+  evaluationChart.addEventListener('focusout', hideEvaluationPoint);
+  renderEvaluationHistory();
 
   const PANEL_WIDTH = 360;
   const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
@@ -282,6 +422,9 @@
       for (const waiter of [...pageWaiters]) waiter.finish();
       finishPanelInteraction();
       panelSizeObserver?.disconnect();
+      evaluationChart.onpointermove = evaluationChart.onpointerleave = null;
+      evaluationChart.removeEventListener('focusin', onEvaluationFocus);
+      evaluationChart.removeEventListener('focusout', hideEvaluationPoint);
       $('scale-down').onclick = $('scale-up').onclick = null;
       panel.onpointerdown = panel.onlostpointercapture = panelHeader.onpointerdown = panelHeader.ondblclick = null;
       window.removeEventListener('pointermove', movePanelInteraction);
@@ -467,6 +610,7 @@
     if (!isContextAlive()) { invalidateContext(); return; }
     if (window.innerWidth < 700) setCollapsed(true);
     const ticket = ++generation;
+    const searchRoute = location.pathname;
     const started = performance.now();
     const varyOperations = $('vary-operations').checked;
     const searchSettings = { mode: $('mode').value, movetime: Number($('budget').value), balance: Number($('balance').value) };
@@ -477,6 +621,7 @@
       const snapshot = await adapter.read();
       if (ticket !== generation) return;
       current = snapshot;
+      observeEvaluationGame(snapshot);
       const suggestionOnly = analysisOnly(snapshot);
       if (!suggestionOnly && !snapshot.historyMode && snapshot.participant !== false &&
           (snapshot.loading || snapshot.hasPreMove || snapshot.connected === false)) {
@@ -497,7 +642,7 @@
         ...(Array.isArray(snapshot.moves) ? { initialFen: snapshot.initFen, moves: snapshot.moves } : {}),
         mode: searchSettings.mode, balance: searchSettings.balance, requestId,
       });
-      if (ticket !== generation || !onBoard()) return;
+      if (ticket !== generation || !onBoard() || location.pathname !== searchRoute) return;
       if (performance.now() - started > Math.min(4400, turnLimit - 250)) throw new Error('计算超时，已取消本步');
       if (!result.bestmove || result.bestmove === '(none)' || result.bestmove === '0000') throw new Error('当前局面无可走着法');
       if (!(result.depth >= 6) && !(result.score?.type === 'mate' && result.score.value > 0)) {
@@ -520,11 +665,12 @@
             }
           } });
       }
-      if (ticket !== generation) return;
+      if (ticket !== generation || location.pathname !== searchRoute) return;
       if (!suggestionOnly) lastPlayed = snapshot.boardKey;
       $('move').textContent = result.bestmove;
       $('depth').textContent = `深度 ${result.depth ?? '-'}`;
       setEvaluation(result.score);
+      recordEvaluation(result.score, snapshot);
       $('elapsed').textContent = `耗时 ${((performance.now() - started) / 1000).toFixed(2)} 秒`;
       $('pv').textContent = (result.pv || []).slice(0, 8).join(' > ');
       $('importance').textContent = Number.isFinite(result.importance) ? `重要性 ${Math.round(result.importance * 100)}` : '固定时限';
@@ -568,6 +714,7 @@
       if (observedRoute !== location.pathname) {
         if (auto || busy) stop('已切换对局，已暂停');
         observedRoute = location.pathname;
+        clearEvaluationHistory();
         observedGameKey = null;
         lastPlayed = null;
         syncSince = null;
@@ -589,6 +736,8 @@
         if (!ready && !booting) { if (!host.dataset.bootAttempted) { host.dataset.bootAttempted = 'true'; void boot(); } }
         if (!busy) {
           current = await adapter.read();
+          if (destroyed) return;
+          observeEvaluationGame(current);
           const recovered = boardReadFailed;
           const changedBoard = observedGameKey !== current.gameKey;
           syncSince = null;

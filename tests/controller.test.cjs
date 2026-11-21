@@ -81,12 +81,16 @@ async function controller(initial = {}, options = {}) {
   }
   function makeElement(id = '', tagName = 'DIV') {
     const capturedPointers = new Set();
+    const attributes = new Map();
     const style = {
       setProperty(name, value) { this[name] = value; },
       getPropertyValue(name) { return this[name] || ''; },
       removeProperty(name) { const old = this[name] || ''; delete this[name]; return old; },
     };
     const element = eventTarget({ id, tagName, style, dataset: {}, classList: classList(), disabled: false, textContent: '', innerHTML: '', value: '', hidden: false });
+    element.setAttribute = (name, value) => { attributes.set(name, String(value)); };
+    element.getAttribute = name => attributes.get(name) ?? null;
+    element.removeAttribute = name => { attributes.delete(name); };
     element.closest = selector => selector.toLowerCase() === tagName.toLowerCase() ? element : element.parentElement?.closest(selector) || null;
     element.setPointerCapture = pointerId => capturedPointers.add(pointerId);
     element.releasePointerCapture = pointerId => capturedPointers.delete(pointerId);
@@ -1073,6 +1077,269 @@ test('mate results remain explicit and separate from finite normalized evaluatio
     assert.equal(app.elements.get('score').textContent, `杀棋 ${value}`);
     assert.equal(app.elements.get('score-meaning').textContent, meaning);
   }
+});
+
+function evaluationHistory(app) {
+  return [...app.elements.get('evaluation-points').innerHTML.matchAll(/<circle\b([^>]*)>/g)].flatMap(([, attributes]) => {
+    const values = Object.fromEntries([...attributes.matchAll(/([\w-]+)="([^"]*)"/g)].map(([, name, value]) => [name, value]));
+    return values['data-ply'] === undefined ? [] : [{ ply: Number(values['data-ply']), value: Number(values['data-value']), attributes: values }];
+  });
+}
+
+function assertShapePreservingCurve(app, count, requireNonzeroSlope = false) {
+  const curve = app.elements.get('evaluation-line').getAttribute('d');
+  assert.ok(!/NaN|Infinity/.test(curve));
+  const commands = curve.match(/[A-Za-z][^A-Za-z]*/g) || [];
+  assert.equal(commands[0]?.[0], 'M');
+  let previous = commands[0].slice(1).trim().split(/[ ,]+/).map(Number);
+  let previousSlope;
+  let hasNonzeroInteriorSlope = false;
+  assert.equal(commands.length, count, 'the path spans every sampled position');
+  for (const command of commands.slice(1)) {
+    assert.equal(command[0], 'C', 'the game curve joins samples with smooth cubic segments');
+    const values = command.slice(1).trim().split(/[ ,]+/).map(Number);
+    assert.equal(values.length, 6);
+    const [x1, y1, x2, y2, endX, endY] = values;
+    const [startX, startY] = previous;
+    assert.ok(x1 > startX && x2 > x1 && endX > x2, 'time moves forward along every segment');
+    for (let step = 0; step <= 20; step++) {
+      const t = step / 20, u = 1 - t;
+      const y = u ** 3 * startY + 3 * u ** 2 * t * y1 + 3 * u * t ** 2 * y2 + t ** 3 * endY;
+      assert.ok(y >= Math.min(startY, endY) - .00001 && y <= Math.max(startY, endY) + .00001,
+        'a smooth transition must not invent a stronger advantage than either observed endpoint');
+    }
+    const startSlope = (y1 - startY) / (x1 - startX);
+    if (previousSlope !== undefined) {
+      assert.ok(Math.abs(startSlope - previousSlope) < .0001, 'adjacent cubic tangents remain continuous');
+      if (Math.abs(startSlope) > .01) hasNonzeroInteriorSlope = true;
+    }
+    previousSlope = (endY - y2) / (endX - x2);
+    previous = [endX, endY];
+  }
+  if (requireNonzeroSlope) assert.equal(hasNonzeroInteriorSlope, true, 'the scenario exercises a nonzero join derivative');
+}
+
+test('the game evaluation curve starts empty and records only after a move is confirmed', async () => {
+  const app = await controller({}, { deferConfirmation: true });
+  assert.deepEqual(evaluationHistory(app), [], 'a fresh game must not fabricate a zero evaluation');
+  await app.click('single');
+  await app.resolveSearch(0, { score: { type: 'cp', value: 50 } });
+  assert.equal(app.confirmations.length, 1);
+  assert.deepEqual(evaluationHistory(app), [], 'a searched but unconfirmed move must not enter the graph');
+  app.confirmations[0].resolve();
+  await flush();
+  assert.deepEqual(evaluationHistory(app).map(({ ply, value }) => ({ ply, value })), [{ ply: 0, value: .5 }]);
+  assert.equal(app.elements.get('evaluation-empty').classList.contains('hidden'), true);
+});
+
+test('the game curve uses a fixed red perspective while the numeric score keeps the searching side perspective', async () => {
+  for (const [side, score, expected] of [['red', 300, .9], ['black', 300, -.9], ['red', -300, -.9], ['black', -300, .9]]) {
+    const app = await controller({ turn: side, playerSide: side, moveCount: 7 });
+    await app.click('single');
+    await app.resolveSearch(0, { score: { type: 'cp', value: score } });
+    assert.deepEqual(evaluationHistory(app).map(({ ply, value }) => ({ ply, value })), [{ ply: 7, value: expected }]);
+    assert.equal(app.elements.get('score').textContent, `评估 ${score > 0 ? '+' : '-'}0.900000`);
+  }
+});
+
+test('the game curve appends actual sampled plies and replaces a second evaluation at the same ply', async () => {
+  const app = await controller({ mode: 'analysis', canAnalyze: true, active: false, participant: false }, { pathname: '/analysis/board' });
+  await app.click('single');
+  await app.resolveSearch(0, { score: { type: 'cp', value: 50 } });
+  app.setState({ moveCount: 4, boardKey: 'analysis:four' });
+  await app.advance(110);
+  await app.click('single');
+  await app.resolveSearch(1, { score: { type: 'cp', value: 150 } });
+  await app.click('single');
+  await app.resolveSearch(2, { score: { type: 'cp', value: 300 } });
+  assert.deepEqual(evaluationHistory(app).map(({ ply, value }) => ({ ply, value })), [{ ply: 0, value: .5 }, { ply: 4, value: .9 }]);
+  assert.ok(!/NaN|Infinity/.test(app.elements.get('evaluation-line').getAttribute('d')));
+});
+
+test('pausing, reconnecting and a completed game retain the current game curve', async () => {
+  const app = await controller();
+  await app.click('auto');
+  await app.resolveSearch(0, { score: { type: 'cp', value: 150 } });
+  const recorded = evaluationHistory(app);
+  await app.click('auto');
+  await app.click('pause-confirm');
+  assert.deepEqual(evaluationHistory(app), recorded);
+  await app.click('reconnect');
+  assert.deepEqual(evaluationHistory(app), recorded);
+  app.setState({ active: false, moveCount: 1 });
+  await app.advance(110);
+  assert.deepEqual(evaluationHistory(app), recorded, 'the finished game stays available for review');
+});
+
+test('changing game identity clears the old curve before the first new evaluation', async () => {
+  const app = await controller();
+  await app.click('single');
+  await app.resolveSearch();
+  assert.equal(evaluationHistory(app).length, 1);
+  app.setState({ gameKey: 'game:new', boardKey: 'game:new-opening', moveCount: 0, turn: 'red' });
+  await app.advance(110);
+  assert.deepEqual(evaluationHistory(app), []);
+  assert.equal(app.elements.get('evaluation-empty').classList.contains('hidden'), false);
+  await app.click('single');
+  await app.resolveSearch(1, { score: { type: 'cp', value: -150 } });
+  assert.deepEqual(evaluationHistory(app).map(({ ply, value }) => ({ ply, value })), [{ ply: 0, value: -.7 }]);
+});
+
+test('a same-identity return to the opening clears the previous game curve', async () => {
+  const app = await controller({ moveCount: 6, boardKey: 'game:six' });
+  await app.click('single');
+  await app.resolveSearch();
+  app.setState({ moveCount: 7, boardKey: 'game:seven', turn: 'black' });
+  await app.advance(110);
+  assert.equal(evaluationHistory(app).length, 1);
+  app.setState({ moveCount: 0, boardKey: 'game:opening', turn: 'red', active: true });
+  await app.advance(110);
+  assert.deepEqual(evaluationHistory(app), []);
+});
+
+test('restarting a same-identity one-move game permits playing its opening again', async () => {
+  const app = await controller();
+  await app.click('single');
+  await app.resolveSearch();
+  assert.equal(app.plays.length, 1);
+  await app.advance(110);
+  app.setState({ moveCount: 0, boardKey: 'game:opening', turn: 'red', active: true });
+  await app.advance(110);
+  assert.deepEqual(evaluationHistory(app), []);
+  await app.click('single');
+  assert.equal(app.searches.length, 2, 'the previous opening move must not mark the new game opening as already played');
+  await app.resolveSearch(1, { score: { type: 'cp', value: 50 } });
+  assert.equal(app.plays.length, 2);
+  assert.deepEqual(evaluationHistory(app).map(({ ply, value }) => ({ ply, value })), [{ ply: 0, value: .5 }]);
+});
+
+test('a black player first seeing a same-identity new opening at ply one gets a fresh curve', async () => {
+  const app = await controller({ moveCount: 9, boardKey: 'game:nine', playerSide: 'black', turn: 'black' });
+  await app.click('single');
+  await app.resolveSearch(0, { score: { type: 'cp', value: 300 } });
+  app.setState({ moveCount: 10, boardKey: 'game:ten', turn: 'red' });
+  await app.advance(110);
+  assert.equal(evaluationHistory(app).length, 1);
+  app.setState({ moveCount: 1, boardKey: 'game:new-after-red', turn: 'black', active: true });
+  await app.advance(110);
+  assert.deepEqual(evaluationHistory(app), [], 'red may have moved before black sees the new game');
+  await app.click('single');
+  await app.resolveSearch(1, { score: { type: 'cp', value: 50 } });
+  assert.deepEqual(evaluationHistory(app).map(({ ply, value }) => ({ ply, value })), [{ ply: 1, value: -.5 }]);
+});
+
+test('opening history replay does not clear or append to the live game curve', async () => {
+  const app = await controller({ moveCount: 6, boardKey: 'game:six' });
+  await app.click('single');
+  await app.resolveSearch();
+  const recorded = evaluationHistory(app);
+  app.setState({ historyMode: true, moveCount: 0, boardKey: 'game:opening' });
+  await app.advance(220);
+  assert.deepEqual(evaluationHistory(app), recorded);
+  app.setState({ historyMode: false, moveCount: 7, boardKey: 'game:seven', turn: 'black' });
+  await app.advance(110);
+  assert.deepEqual(evaluationHistory(app), recorded);
+});
+
+test('route changes clear the curve and discard a late result from the old game', async () => {
+  const app = await controller({ mode: 'online' }, { pathname: '/game/first' });
+  await app.click('single');
+  await app.resolveSearch();
+  app.setState({ turn: 'red', moveCount: 2, boardKey: 'game:second-position' });
+  await app.advance(110);
+  await app.click('single');
+  app.location.pathname = '/game/second';
+  app.setState({ gameKey: 'game:second', moveCount: 0, boardKey: 'game:second-opening' });
+  await app.advance(110);
+  await app.resolveSearch(1, { score: { type: 'cp', value: 300 } });
+  assert.deepEqual(evaluationHistory(app), []);
+  assert.equal(app.plays.length, 1);
+});
+
+test('a route change rejects late search and confirmation results before the next polling tick', async () => {
+  const pendingSearch = await controller({ mode: 'online' }, { pathname: '/game/first' });
+  await pendingSearch.click('single');
+  const readsBeforeNavigation = pendingSearch.readCount;
+  pendingSearch.location.pathname = '/game/second';
+  pendingSearch.setState({ gameKey: 'game:second', boardKey: 'game:second-opening', moveCount: 0 });
+  await pendingSearch.resolveSearch(0, { score: { type: 'cp', value: 300 } });
+  assert.equal(pendingSearch.readCount, readsBeforeNavigation, 'the guard must not depend on a polling tick');
+  assert.equal(pendingSearch.playAttempts.length, 0);
+  assert.deepEqual(evaluationHistory(pendingSearch), []);
+
+  const pendingConfirmation = await controller({ mode: 'online' }, { pathname: '/game/first', deferConfirmation: true });
+  await pendingConfirmation.click('single');
+  await pendingConfirmation.resolveSearch(0, { score: { type: 'cp', value: 300 } });
+  assert.equal(pendingConfirmation.confirmations.length, 1);
+  pendingConfirmation.location.pathname = '/game/second';
+  pendingConfirmation.setState({ gameKey: 'game:second', boardKey: 'game:second-opening', moveCount: 0 });
+  pendingConfirmation.confirmations[0].resolve();
+  await flush();
+  assert.deepEqual(evaluationHistory(pendingConfirmation), [], 'a late old-route confirmation must not append a point');
+});
+
+test('invalid, rejected, shallow and cancelled evaluations never enter the game curve', async () => {
+  for (const score of [null, { type: 'cp', value: NaN }, { type: 'cp', value: Infinity }, { type: 'unknown', value: 10 }, { type: 'mate', value: 0 }]) {
+    const app = await controller();
+    await app.click('single');
+    await app.resolveSearch(0, { score });
+    assert.deepEqual(evaluationHistory(app), []);
+  }
+  const rejected = await controller({}, { playError: new Error('move was rejected') });
+  await rejected.click('single');
+  await rejected.resolveSearch();
+  assert.deepEqual(evaluationHistory(rejected), []);
+  const shallow = await controller();
+  await shallow.click('single');
+  await shallow.resolveSearch(0, { depth: 5 });
+  assert.deepEqual(evaluationHistory(shallow), []);
+  const cancelled = await controller();
+  await cancelled.click('auto');
+  await cancelled.click('auto');
+  await cancelled.click('pause-confirm');
+  await cancelled.resolveSearch();
+  assert.deepEqual(evaluationHistory(cancelled), []);
+});
+
+test('mate samples keep an explicit mate label and use signed endpoints in the game curve', async () => {
+  for (const [side, mate, expected] of [['red', 3, 1], ['red', -3, -1], ['black', 3, -1], ['black', -3, 1]]) {
+    const app = await controller({ turn: side, playerSide: side });
+    await app.click('single');
+    await app.resolveSearch(0, { score: { type: 'mate', value: mate } });
+    const points = evaluationHistory(app);
+    assert.equal(points.length, 1);
+    assert.equal(points[0].value, expected);
+    assert.match(app.elements.get('evaluation-points').innerHTML, /杀棋/);
+    assert.equal(app.elements.get('score').textContent, `杀棋 ${mate}`);
+  }
+});
+
+test('the evaluation curve retains the opening and every sampled position through a long game', async () => {
+  const app = await controller({ mode: 'analysis', canAnalyze: true, active: false, participant: false }, { pathname: '/analysis/board' });
+  for (let index = 0; index < 160; index++) {
+    app.setState({ moveCount: index * 2, boardKey: `analysis:long-game-${index}` });
+    await app.advance(110);
+    await app.click('single');
+    await app.resolveSearch(index, { score: { type: 'cp', value: index % 2 ? -50 : 50 } });
+  }
+  const points = evaluationHistory(app);
+  assert.equal(points.length, 160);
+  assert.equal(points[0].ply, 0);
+  assert.equal(points.at(-1).ply, 318);
+  assertShapePreservingCurve(app, 160);
+});
+
+test('unevenly spaced evaluations keep continuous nonzero tangents without overshooting samples', async () => {
+  const app = await controller({ mode: 'analysis', canAnalyze: true, active: false, participant: false }, { pathname: '/analysis/board' });
+  const samples = [[0, -300], [1, -150], [4, -50], [13, 50], [14, 150], [29, 300], [41, 600], [44, 150], [57, -50]];
+  for (const [index, [ply, cp]] of samples.entries()) {
+    app.setState({ moveCount: ply, boardKey: `analysis:irregular-${ply}` });
+    await app.advance(110);
+    await app.click('single');
+    await app.resolveSearch(index, { score: { type: 'cp', value: cp } });
+  }
+  assert.deepEqual(evaluationHistory(app).map(point => point.ply), samples.map(([ply]) => ply));
+  assertShapePreservingCurve(app, samples.length, true);
 });
 
 test('pausing cancels the search and discards a late engine response', async () => {

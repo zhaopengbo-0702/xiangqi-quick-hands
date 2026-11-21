@@ -1,20 +1,20 @@
-# 象棋快手 v2.6.2
+# 象棋快手 v2.7.0
 
 [下载发行版](https://github.com/zhaopengbo-0702/xiangqi-quick-hands/releases/latest) · [逐版更新记录](CHANGELOG.md) · [评估公式](docs/evaluation-mapping.md) · [问题反馈](https://github.com/zhaopengbo-0702/xiangqi-quick-hands/issues) · [自动检查](https://github.com/zhaopengbo-0702/xiangqi-quick-hands/actions)
 
 Chrome / Edge 浏览器扩展，内置 Pikafish WASM 与 NNUE，支持 Xiangqi.com 对局、题库和棋盘分析。面板支持拖动、整体缩放、后台运行，以及运行中调整搜索参数。
 
-**2.6.2** 精简面板和页面文案，统一使用 LaTeX 展示数学公式。评分沿用 PCHIP 插值，转换链、五段函数、系数和计算示例见 [评估转换与插值函数](docs/evaluation-mapping.md)。
+**2.7.0** 在主面板新增“本局评估走势”，用平滑曲线展示本局已计算局面的评估变化，新一局自动清零。评分沿用 PCHIP 插值，转换链、五段函数、系数和计算示例见 [评估转换与插值函数](docs/evaluation-mapping.md)。
 
 ## 安装与更新
 
-使用 Chrome / Edge 116 或更新版本，下载 [xiangqi-quick-hands-v2.6.2.zip](https://github.com/zhaopengbo-0702/xiangqi-quick-hands/releases/download/v2.6.2/xiangqi-quick-hands-v2.6.2.zip)。安装包内含扩展、引擎、网络、对应源码和许可证。
+使用 Chrome / Edge 116 或更新版本，下载 [xiangqi-quick-hands-v2.7.0.zip](https://github.com/zhaopengbo-0702/xiangqi-quick-hands/releases/download/v2.7.0/xiangqi-quick-hands-v2.7.0.zip)。安装包内含扩展、引擎、网络、对应源码和许可证。
 
 1. 解压安装包，保留整个目录。
 2. Edge 打开 `edge://extensions`；Chrome 打开 `chrome://extensions`。
 3. 开启“开发人员模式”，点击“加载解压缩的扩展”，选择直接包含 `manifest.json` 的目录。
 4. 更新旧版时，用新版文件替换原目录，再点击扩展的“重新加载”。
-5. 刷新棋盘，确认面板标题为 **象棋快手 v2.6.2**。等待“引擎就绪”，点击“开始自动”或“走一步”。首次预热需要数秒。
+5. 刷新棋盘，确认面板标题为 **象棋快手 v2.7.0**。等待“引擎就绪”，点击“开始自动”或“走一步”。首次预热需要数秒。
 
 源码安装时选择仓库中的 `extension` 文件夹。浏览器工具栏的扩展按钮可以展开或收起面板，安装目录用于浏览器持续加载扩展。安装包使用带版本号的文件名，校验值见同版 `SHA256SUMS.txt`。
 
@@ -39,6 +39,20 @@ Chrome / Edge 浏览器扩展，内置 Pikafish WASM 与 NNUE，支持 Xiangqi.c
 “搜索模式”“最长计算”和自适应模式下的“决策偏好”均可在运行中调整，新选择从下一步生效。偏好滑条的百分比实时更新，松开后保存，刷新后恢复。
 
 “反侦查辅助（操作变化）”开关位于参数区，控制选子前后的随机短暂停顿和点击位置变化，设置会保存，运行中切换从下一步生效。
+
+## 本局评估走势
+
+![象棋快手 v2.7.0 本局平滑评估走势](docs/assets/evaluation-history-panel.png)
+
+界面示例，使用模拟评估数据。
+
+主面板中的平滑走势曲线随每次成功计算更新，横轴为评估所在局面的手数，每一手表示一个单方步；纵轴固定为 −1 至 +1。曲线统一采用红方视角：正值红方有利，负值黑方有利，零线表示均势，换边行棋时不会因视角切换而翻转。
+
+连线采用保形分段三次 Hermite 插值（PCHIP），相邻段的一阶导数连续，段内保持在相邻两个评估点的数值范围内。曲线平滑仅影响连线，实际评估点不变。这一步用于连接对局中的记录点，与下节将原始评分转换为面板分数的 PCHIP 用途不同。全部节点斜率、Hermite 函数和 SVG 控制点公式见 [走势记录与平滑公式](docs/evaluation-history.md)。
+
+普通评分使用下节的六位局势指数；计算局面轮到红方时按原分数绘制，轮到黑方时取相反数。非零杀棋在图上标记于 +1 或 −1，并保留“杀棋”标注；数字评估仍显示“杀棋 N”。引擎报告“杀棋 0”时跳过图表记录。
+
+从开局开始使用时，曲线从第一次有效计算开始记录。同一手再次计算会更新对应点。暂停、收起面板或重新连接引擎后继续保留本局记录；切换对局、题目或识别人机重新开局时自动清零。中途进入时从首次实际计算的位置开始，曲线连接已记录点。走势图复用现有计算结果，不增加后台分析任务；刷新页面后重新开始记录。
 
 ## 评估显示
 
