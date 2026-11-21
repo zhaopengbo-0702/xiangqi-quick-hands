@@ -41,8 +41,7 @@
     .primary{background:#176d4d;color:white;border-color:#176d4d}.primary img{filter:brightness(0) invert(1)}.primary.running{background:#a52b32;border-color:#a52b32}
     .result{margin-top:14px;border-top:1px solid #e7eae8;padding-top:11px;display:flex;justify-content:space-between;align-items:center;gap:8px}.move{font-family:Consolas,monospace;font-size:23px;font-weight:600;color:#224b38;white-space:nowrap}
     #side{font-size:14px;color:#58665e}.metrics{display:flex;flex-wrap:wrap;justify-content:space-between;color:#58665e;font-size:14px;gap:5px;margin-top:7px;font-variant-numeric:tabular-nums}.score-meaning{font-size:14px;line-height:1.6;color:#58665e;margin-top:4px;overflow-wrap:anywhere}.pv{color:#58665e;font-family:Consolas,monospace;font-size:14px;line-height:1.6;overflow-wrap:anywhere;margin-top:9px;max-height:5em;overflow:auto}
-    .evaluation-history{margin-top:12px;border-top:1px solid #e7eae8;padding-top:10px}.evaluation-heading{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:14px}.evaluation-heading b{font-size:15px;color:#263a30}.evaluation-heading span{color:#58665e;font-variant-numeric:tabular-nums}
-    #evaluation-integral{display:block;margin-top:6px;font-size:14px;line-height:1.6;color:#485d51;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+    .evaluation-history{margin-top:12px;border-top:1px solid #e7eae8;padding-top:10px}.evaluation-heading{font-size:14px}.evaluation-heading b{font-size:15px;color:#263a30}
     .evaluation-plot{position:relative;margin-top:6px;border:1px solid #e0e7e2;border-radius:5px;overflow:hidden;background:#fafcfb}#evaluation-chart{display:block;width:100%;height:auto;overflow:visible;font-family:inherit;font-size:12px;color:#58665e;touch-action:pan-y}.evaluation-grid{stroke:#dce4de;stroke-width:1}.evaluation-zero{stroke:#9baea1;stroke-dasharray:3 3}.evaluation-axis{fill:#58665e}.evaluation-line{fill:none;stroke:#176d4d;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}.evaluation-point{fill:#176d4d;stroke:#fff;stroke-width:1.2;cursor:crosshair}.evaluation-point[data-mate=true]{fill:#ad393d}.evaluation-point:focus{outline:none;stroke:#263a30;stroke-width:2}.evaluation-hit{fill:transparent;pointer-events:all;cursor:crosshair}#evaluation-cursor{stroke:#7d9486;stroke-width:1;stroke-dasharray:3 3;pointer-events:none}#evaluation-active{fill:#fff;stroke:#176d4d;stroke-width:2;pointer-events:none}
     #evaluation-tooltip{position:absolute;left:8px;top:7px;z-index:1;max-width:calc(100% - 16px);padding:3px 6px;border:1px solid #d5dfd8;border-radius:4px;background:#fffffff2;box-shadow:0 2px 6px #162a231a;font-size:13px;line-height:1.6;color:#485d51;font-variant-numeric:tabular-nums;overflow-wrap:anywhere;pointer-events:none}
     footer{display:flex;flex-wrap:wrap;gap:5px;align-items:center;justify-content:flex-end;padding:9px 16px 9px 12px;background:#f7f9f8;border-top:1px solid #e7eae8;color:#58665e;font-size:14px}
@@ -58,8 +57,7 @@
   <div class="actions"><button id="auto" class="command primary" disabled>${icon('play','开始自动')}</button><button id="single" class="command" disabled>${icon('step-forward','走一步')}</button></div>
   <div class="result"><output id="move" class="move">-</output><span id="side">-</span></div><div class="metrics"><span id="depth">深度 -</span><span id="score">评估 -</span><span id="elapsed">耗时 -</span></div>
   <div id="score-meaning" class="score-meaning">暂无有效评估</div>
-  <section class="evaluation-history" aria-label="本局评估走势"><div class="evaluation-heading"><b>本局评估走势</b><span id="evaluation-summary">已记录 0 个局面</span></div>
-  <output id="evaluation-integral" title="有符号积分除以实际记录手数跨度，范围 −1～+1">平均优势 -</output>
+  <section class="evaluation-history" aria-label="本局评估走势"><div class="evaluation-heading"><b>本局评估走势</b></div>
   <div class="evaluation-plot"><svg id="evaluation-chart" viewBox="0 0 332 154" role="group" aria-label="本局评估曲线，横轴为手数，纵轴为评估，范围负1到正1">
   <path class="evaluation-grid" d="M32,14H320 M32,72H320 M32,130H320"/><path class="evaluation-grid evaluation-zero" d="M32,72H320"/>
   <g class="evaluation-axis"><text x="25" y="18" text-anchor="end">+1</text><text x="25" y="76" text-anchor="end">0</text><text x="25" y="134" text-anchor="end">−1</text><text id="evaluation-x-start" x="32" y="147">0</text><text id="evaluation-x-middle" x="176" y="147" text-anchor="middle">5</text><text id="evaluation-x-end" x="320" y="147" text-anchor="end">10 手</text></g>
@@ -246,24 +244,10 @@
     $('evaluation-x-end').textContent = `${evaluationMaxPly} 手`;
     const segments = evaluationCurveSegments(evaluationPoints);
     $('evaluation-line').setAttribute('d', evaluationCurvePath(evaluationPoints, segments));
-    // Exact integral of the same Hermite segments used to draw the curve.
-    const area = segments.reduce((total, segment) => total +
-      segment.width * (segment.start.value + segment.end.value) / 2 +
-      segment.width ** 2 * (segment.startSlope - segment.endSlope) / 12, 0);
-    const integral = $('evaluation-integral');
-    const span = evaluationPoints.length > 1 ? last.ply - evaluationPoints[0].ply : 0;
-    const mean = span > 0 ? Math.max(-1, Math.min(1, area / span)) : null;
-    const shownMean = mean === null ? null : Number(mean.toFixed(6));
-    integral.textContent = shownMean === null ? '平均优势 -' : `平均优势 ${signedEvaluation(shownMean === 0 ? 0 : shownMean)}`;
-    integral.dataset.value = mean === null ? '' : String(mean === 0 ? 0 : mean);
-    integral.dataset.area = evaluationPoints.length ? String(area === 0 ? 0 : area) : '';
-    integral.dataset.startPly = evaluationPoints.length ? String(evaluationPoints[0].ply) : '';
-    integral.dataset.endPly = last ? String(last.ply) : '';
     $('evaluation-points').innerHTML = evaluationPoints.map(point => {
       const label = evaluationPointLabel(point);
       return `<circle class="evaluation-point" cx="${chartCoordinate(chartX(point.ply))}" cy="${chartCoordinate(chartY(point.value))}" r="${point.mate ? 3.3 : 2.5}" tabindex="0" role="img" data-ply="${point.ply}" data-value="${point.value}" data-mate="${Boolean(point.mate)}" aria-label="${label}"></circle>`;
     }).join('');
-    $('evaluation-summary').textContent = `已记录 ${evaluationPoints.length} 个局面`;
     evaluationChart.dataset.count = String(evaluationPoints.length);
     evaluationChart.dataset.perspective = evaluationSide;
     evaluationChart.dataset.controlled = String(evaluationControlled);
