@@ -1141,8 +1141,8 @@ test('the game curve follows the controlled player for both red and black while 
     assert.equal(app.elements.get('score').textContent, `评估 ${score > 0 ? '+' : '-'}0.900000`);
     assert.equal(app.elements.get('evaluation-chart').dataset.perspective, side);
     assert.equal(app.elements.get('evaluation-chart').dataset.controlled, 'true');
-    assert.match(app.elements.get('evaluation-viewpoint').textContent, /我的视角/);
-    assert.doesNotMatch(app.elements.get('evaluation-viewpoint').textContent, /执红|执黑|先手|后手|红方视角/);
+    assert.equal(app.elements.has('evaluation-viewpoint'), false);
+    assert.doesNotMatch(app.elements.get('evaluation-tooltip').textContent, /我的视角|我方视角|分析视角|执红|执黑/);
   }
 });
 
@@ -1340,7 +1340,7 @@ test('the controlled black perspective stays fixed when the side to move changes
   assert.deepEqual(evaluationHistory(app).map(({ ply, value }) => ({ ply, value })), [{ ply: 0, value: .5 }, { ply: 1, value: .5 }]);
   assert.equal(app.elements.get('score').textContent, '评估 +0.500000');
   assert.equal(app.elements.get('evaluation-chart').dataset.perspective, 'black');
-  assert.match(app.elements.get('evaluation-tooltip').textContent, /我的视角.*\+0\.500000/);
+  assert.match(app.elements.get('evaluation-tooltip').textContent, /第 1 手 · \+0\.500000/);
 });
 
 test('analysis, spectating and unknown player identity use an explicit stable red fallback', async () => {
@@ -1360,8 +1360,8 @@ test('analysis, spectating and unknown player identity use an explicit stable re
     assert.deepEqual(evaluationHistory(app).map(({ ply, value }) => ({ ply, value })), [{ ply: 0, value: .5 }, { ply: 1, value: -.5 }]);
     assert.equal(app.elements.get('evaluation-chart').dataset.perspective, 'red');
     assert.equal(app.elements.get('evaluation-chart').dataset.controlled, 'false');
-    assert.match(app.elements.get('evaluation-viewpoint').textContent, /分析视角/);
-    assert.doesNotMatch(app.elements.get('evaluation-viewpoint').textContent, /我的视角|执黑|红方视角/);
+    assert.equal(app.elements.has('evaluation-viewpoint'), false);
+    assert.doesNotMatch(app.elements.get('evaluation-tooltip').textContent, /我的视角|分析视角|执黑|红方视角/);
   }
 });
 

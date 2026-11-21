@@ -63,7 +63,7 @@
   <g class="evaluation-axis"><text x="25" y="18" text-anchor="end">+1</text><text x="25" y="76" text-anchor="end">0</text><text x="25" y="134" text-anchor="end">−1</text><text id="evaluation-x-start" x="32" y="147">0</text><text id="evaluation-x-middle" x="176" y="147" text-anchor="middle">5</text><text id="evaluation-x-end" x="320" y="147" text-anchor="end">10 手</text></g>
   <rect x="32" y="14" width="288" height="58" fill="#176d4d" fill-opacity=".025"/><rect x="32" y="72" width="288" height="58" fill="#ad393d" fill-opacity=".025"/>
   <path id="evaluation-line" class="evaluation-line" d=""/><g id="evaluation-points"></g><path id="evaluation-cursor" class="hidden" d=""/><circle id="evaluation-active" class="hidden" r="4"/>
-  </svg><div id="evaluation-empty">等待首个评估</div></div><div id="evaluation-tooltip">每次有效计算记录一个点</div><div class="evaluation-legend"><span id="evaluation-viewpoint">我的视角 · 正值我优 / 负值对方优</span><span>新局自动清零</span></div></section>
+  </svg><div id="evaluation-empty">等待首个评估</div></div><div id="evaluation-tooltip">每次有效计算记录一个点</div><div class="evaluation-legend"><span>新局自动清零</span></div></section>
   <div class="importance"><span id="importance">重要性 -</span><span id="allocated">预算 -</span></div><div id="pv" class="pv"></div>
   <div id="stop-reason" class="stop-reason hidden" role="status"></div>
   </main><footer><span id="footer">最多 5 秒 · 至少 6 层</span><span id="plies">第 0 手</span></footer></div>
@@ -177,10 +177,9 @@
   const chartY = value => 72 - 58 * value;
   const chartCoordinate = value => Number(value.toFixed(6));
   const signedEvaluation = value => `${value > 0 ? '+' : ''}${value.toFixed(6)}`;
-  const evaluationPerspectiveLabel = () => evaluationControlled ? '我的视角' : '分析视角';
   function evaluationPointLabel(point) {
     const favored = evaluationControlled ? (point.value > 0 ? '我方' : '对方') : (point.value > 0 ? '红方' : '黑方');
-    return `第 ${point.ply} 手 · ${evaluationPerspectiveLabel()} ${point.mate ? `${favored}杀棋 ${Math.abs(point.mate)}` : signedEvaluation(point.value)}`;
+    return `第 ${point.ply} 手 · ${point.mate ? `${favored}杀棋 ${Math.abs(point.mate)}` : signedEvaluation(point.value)}`;
   }
   function showEvaluationPoint(index) {
     const point = evaluationPoints[index];
@@ -246,8 +245,7 @@
     evaluationChart.dataset.count = String(evaluationPoints.length);
     evaluationChart.dataset.perspective = evaluationSide;
     evaluationChart.dataset.controlled = String(evaluationControlled);
-    evaluationChart.setAttribute('aria-label', `本局评估曲线，${evaluationPerspectiveLabel()}，横轴为手数，纵轴范围负1到正1`);
-    $('evaluation-viewpoint').textContent = evaluationControlled ? '我的视角 · 正值我优 / 负值对方优' : '分析视角';
+    evaluationChart.setAttribute('aria-label', '本局评估曲线，横轴为手数，纵轴范围负1到正1');
     $('evaluation-empty').classList.toggle('hidden', evaluationPoints.length > 0);
     hideEvaluationPoint();
   }

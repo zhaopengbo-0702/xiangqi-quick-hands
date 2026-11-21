@@ -469,7 +469,7 @@ async function main() {
       const root=document.getElementById('xq-quick-hands').shadowRoot;
       const chart=root.getElementById('evaluation-chart');
       return {perspective:chart.dataset.perspective,controlled:chart.dataset.controlled,
-        viewpoint:root.getElementById('evaluation-viewpoint').textContent,
+        hasViewpoint:!!root.getElementById('evaluation-viewpoint'),
         tooltip:root.getElementById('evaluation-tooltip').textContent,
         points:[...root.querySelectorAll('#evaluation-points circle')].map(point=>({
           ply:Number(point.dataset.ply),value:Number(point.dataset.value),mate:point.dataset.mate==='true',
@@ -493,8 +493,8 @@ async function main() {
     assert.ok(panel.pv.includes(panel.move),'The displayed move must have a searched principal variation');
     assert.equal(curve.perspective,playerSide,'The production curve follows the controlled side');
     assert.equal(curve.controlled,'true');
-    assert.match(curve.viewpoint,/我的视角/);
-    assert.ok(!/红方视角|执红|执黑/.test(curve.viewpoint),'The curve caption does not repeat a side label');
+    assert.equal(curve.hasViewpoint,false,'The redundant perspective caption is removed');
+    assert.ok(!/我的视角|分析视角|执红|执黑/.test(curve.tooltip),'Point details contain only the ply and evaluation');
     assert.ok(curve.points.some(point=>point.ply===0),'The genuine initial position evaluation is retained');
     if(playerSide==='black'||reloadScenario){
       assert.equal(openingAnalyses.length,1,'Exactly one initial-position analysis supplements this panel');
