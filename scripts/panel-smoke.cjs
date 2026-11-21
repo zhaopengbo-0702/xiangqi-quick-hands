@@ -151,7 +151,7 @@ async function main() {
       return { text: label.textContent.trim(), insideMain: rect.left >= main.left && rect.right <= main.right && rect.top >= main.top && rect.bottom <= main.bottom,
         beforeStart: rect.bottom <= start.top, visible: rect.width > 0 && rect.height > 0 && rect.bottom <= innerHeight };
     });
-    assert.equal(variationPlacement.text, '反侦查辅助（操作变化）');
+    assert.equal(variationPlacement.text, '反侦查辅助');
     assert.equal(variationPlacement.insideMain, true, 'The switch is in the main panel');
     assert.equal(variationPlacement.beforeStart, true, 'The switch appears directly above the action buttons');
     assert.equal(variationPlacement.visible, true, 'The switch is visible in the normal main panel');

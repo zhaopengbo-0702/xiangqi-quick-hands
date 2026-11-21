@@ -43,7 +43,7 @@
     #side{font-size:14px;color:#58665e}.metrics{display:flex;flex-wrap:wrap;justify-content:space-between;color:#58665e;font-size:14px;gap:5px;margin-top:7px;font-variant-numeric:tabular-nums}.score-meaning{font-size:14px;line-height:1.6;color:#58665e;margin-top:4px;overflow-wrap:anywhere}.pv{color:#58665e;font-family:Consolas,monospace;font-size:14px;line-height:1.6;overflow-wrap:anywhere;margin-top:9px;max-height:5em;overflow:auto}
     .evaluation-history{margin-top:12px;border-top:1px solid #e7eae8;padding-top:10px}.evaluation-heading{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:14px}.evaluation-heading b{font-size:15px;color:#263a30}.evaluation-heading span{color:#58665e;font-variant-numeric:tabular-nums}
     .evaluation-plot{position:relative;margin-top:6px;border:1px solid #e0e7e2;border-radius:5px;overflow:hidden;background:#fafcfb}#evaluation-chart{display:block;width:100%;height:auto;overflow:visible;font-family:inherit;font-size:12px;color:#58665e;touch-action:pan-y}.evaluation-grid{stroke:#dce4de;stroke-width:1}.evaluation-zero{stroke:#9baea1;stroke-dasharray:3 3}.evaluation-axis{fill:#58665e}.evaluation-line{fill:none;stroke:#176d4d;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}.evaluation-point{fill:#176d4d;stroke:#fff;stroke-width:1.2;cursor:crosshair}.evaluation-point[data-mate=true]{fill:#ad393d}.evaluation-point:focus{outline:none;stroke:#263a30;stroke-width:2}.evaluation-hit{fill:transparent;pointer-events:all;cursor:crosshair}#evaluation-cursor{stroke:#7d9486;stroke-width:1;stroke-dasharray:3 3;pointer-events:none}#evaluation-active{fill:#fff;stroke:#176d4d;stroke-width:2;pointer-events:none}
-    #evaluation-tooltip{min-height:22px;margin-top:5px;font-size:13px;line-height:1.6;color:#485d51;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+    #evaluation-tooltip{position:absolute;left:8px;top:7px;z-index:1;max-width:calc(100% - 16px);padding:3px 6px;border:1px solid #d5dfd8;border-radius:4px;background:#fffffff2;box-shadow:0 2px 6px #162a231a;font-size:13px;line-height:1.6;color:#485d51;font-variant-numeric:tabular-nums;overflow-wrap:anywhere;pointer-events:none}
     footer{display:flex;flex-wrap:wrap;gap:5px;align-items:center;justify-content:flex-end;padding:9px 16px 9px 12px;background:#f7f9f8;border-top:1px solid #e7eae8;color:#58665e;font-size:14px}
     .hidden{display:none!important}:focus-visible{outline:2px solid #158a60;outline-offset:2px}
   </style><section id="panel" class="panel" aria-label="象棋快手控制台">
@@ -53,7 +53,7 @@
   <label class="settings" title="运行中可更改，从下一步生效">搜索模式<select id="mode" aria-label="搜索模式"><option value="adaptive" selected>自适应</option><option value="fixed">固定时限</option></select></label>
   <label class="settings" id="balance-row" title="运行中可拖动，从下一步生效">决策偏好<input id="balance" type="range" aria-label="决策偏好" min="0" max="1" step="0.05" value="0.65"><output id="balance-label">稳健 65%</output></label>
   <label class="settings" title="运行中可更改，从下一步生效">最长计算<select id="budget" aria-label="最长计算"><option value="800">0.8 秒</option><option value="1800">1.8 秒</option><option value="2800">2.8 秒</option><option value="3500" selected>3.5 秒</option></select></label>
-  <label class="variation" title="随机短暂停顿和点击位置变化；可随时切换，从下一步生效"><input id="vary-operations" type="checkbox" checked>反侦查辅助（操作变化）</label>
+  <label class="variation" title="随机短暂停顿和点击位置变化；可随时切换，从下一步生效"><input id="vary-operations" type="checkbox" checked>反侦查辅助</label>
   <div class="actions"><button id="auto" class="command primary" disabled>${icon('play','开始自动')}</button><button id="single" class="command" disabled>${icon('step-forward','走一步')}</button></div>
   <div class="result"><output id="move" class="move">-</output><span id="side">-</span></div><div class="metrics"><span id="depth">深度 -</span><span id="score">评估 -</span><span id="elapsed">耗时 -</span></div>
   <div id="score-meaning" class="score-meaning">暂无有效评估</div>
@@ -63,7 +63,7 @@
   <g class="evaluation-axis"><text x="25" y="18" text-anchor="end">+1</text><text x="25" y="76" text-anchor="end">0</text><text x="25" y="134" text-anchor="end">−1</text><text id="evaluation-x-start" x="32" y="147">0</text><text id="evaluation-x-middle" x="176" y="147" text-anchor="middle">5</text><text id="evaluation-x-end" x="320" y="147" text-anchor="end">10 手</text></g>
   <rect x="32" y="14" width="288" height="58" fill="#176d4d" fill-opacity=".025"/><rect x="32" y="72" width="288" height="58" fill="#ad393d" fill-opacity=".025"/>
   <path id="evaluation-line" class="evaluation-line" d=""/><g id="evaluation-points"></g><path id="evaluation-cursor" class="hidden" d=""/><circle id="evaluation-active" class="hidden" r="4"/>
-  </svg></div><div id="evaluation-tooltip">每次有效计算记录一个点</div></section>
+  </svg><div id="evaluation-tooltip" class="hidden"></div></div></section>
   <div class="importance"><span id="importance">重要性 -</span><span id="allocated">预算 -</span></div><div id="pv" class="pv"></div>
   <div id="stop-reason" class="stop-reason hidden" role="status"></div>
   </main><footer><span id="plies">第 0 手</span></footer></div>
@@ -185,6 +185,7 @@
     const point = evaluationPoints[index];
     if (!point) return;
     $('evaluation-tooltip').textContent = evaluationPointLabel(point);
+    $('evaluation-tooltip').classList.remove('hidden');
     const x = chartCoordinate(chartX(point.ply));
     $('evaluation-cursor').setAttribute('d', `M${x},14V130`);
     $('evaluation-active').setAttribute('cx', x);
@@ -195,7 +196,8 @@
   function hideEvaluationPoint() {
     $('evaluation-cursor').classList.add('hidden');
     $('evaluation-active').classList.add('hidden');
-    $('evaluation-tooltip').textContent = evaluationPoints.length ? evaluationPointLabel(evaluationPoints[evaluationPoints.length - 1]) : '每次有效计算记录一个点';
+    $('evaluation-tooltip').textContent = '';
+    $('evaluation-tooltip').classList.add('hidden');
   }
   // PCHIP in actual ply coordinates: C1 joins without overshooting adjacent samples.
   function evaluationCurvePath(points) {
@@ -239,7 +241,7 @@
     $('evaluation-line').setAttribute('d', evaluationCurvePath(evaluationPoints));
     $('evaluation-points').innerHTML = evaluationPoints.map(point => {
       const label = evaluationPointLabel(point);
-      return `<circle class="evaluation-point" cx="${chartCoordinate(chartX(point.ply))}" cy="${chartCoordinate(chartY(point.value))}" r="${point.mate ? 3.3 : 2.5}" tabindex="0" role="img" data-ply="${point.ply}" data-value="${point.value}" data-mate="${Boolean(point.mate)}" aria-label="${label}"><title>${label}</title></circle>`;
+      return `<circle class="evaluation-point" cx="${chartCoordinate(chartX(point.ply))}" cy="${chartCoordinate(chartY(point.value))}" r="${point.mate ? 3.3 : 2.5}" tabindex="0" role="img" data-ply="${point.ply}" data-value="${point.value}" data-mate="${Boolean(point.mate)}" aria-label="${label}"></circle>`;
     }).join('');
     $('evaluation-summary').textContent = `已记录 ${evaluationPoints.length} 个局面`;
     evaluationChart.dataset.count = String(evaluationPoints.length);
@@ -288,17 +290,30 @@
     evaluationPoints.sort((a, b) => a.ply - b.ply);
     renderEvaluationHistory();
   }
-  evaluationChart.onpointermove = event => {
+  function onEvaluationPointer(event) {
     if (!evaluationPoints.length) return;
     const rect = evaluationChart.getBoundingClientRect();
-    const ply = ((event.clientX - rect.left) * 332 / rect.width - 32) * evaluationMaxPly / 288;
-    let nearest = 0;
-    for (let i = 1; i < evaluationPoints.length; i++) {
-      if (Math.abs(evaluationPoints[i].ply - ply) < Math.abs(evaluationPoints[nearest].ply - ply)) nearest = i;
+    const x = (event.clientX - rect.left) * 332 / rect.width;
+    const y = (event.clientY - rect.top) * 154 / rect.height;
+    let nearest = -1, distance = event.pointerType === 'touch' ? 20 : 14;
+    for (let i = 0; i < evaluationPoints.length; i++) {
+      const point = evaluationPoints[i];
+      const nextDistance = Math.hypot(chartX(point.ply) - x, chartY(point.value) - y);
+      if (nextDistance <= distance) { nearest = i; distance = nextDistance; }
     }
-    showEvaluationPoint(nearest);
+    if (nearest < 0) hideEvaluationPoint();
+    else showEvaluationPoint(nearest);
+  }
+  evaluationChart.onpointermove = onEvaluationPointer;
+  evaluationChart.onpointerdown = event => {
+    if (event.pointerType === 'touch') event.preventDefault();
+    onEvaluationPointer(event);
+  };
+  evaluationChart.onpointerup = event => {
+    if (event.pointerType !== 'mouse') hideEvaluationPoint();
   };
   evaluationChart.onpointerleave = hideEvaluationPoint;
+  evaluationChart.onpointercancel = hideEvaluationPoint;
   function onEvaluationFocus(event) {
     const point = event.target.closest?.('[data-ply]');
     if (point) showEvaluationPoint(evaluationPoints.findIndex(sample => sample.ply === Number(point.dataset.ply)));
@@ -439,7 +454,7 @@
       for (const waiter of [...pageWaiters]) waiter.finish();
       finishPanelInteraction();
       panelSizeObserver?.disconnect();
-      evaluationChart.onpointermove = evaluationChart.onpointerleave = null;
+      evaluationChart.onpointermove = evaluationChart.onpointerleave = evaluationChart.onpointerdown = evaluationChart.onpointerup = evaluationChart.onpointercancel = null;
       evaluationChart.removeEventListener('focusin', onEvaluationFocus);
       evaluationChart.removeEventListener('focusout', hideEvaluationPoint);
       $('scale-down').onclick = $('scale-up').onclick = null;

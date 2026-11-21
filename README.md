@@ -1,20 +1,20 @@
-# 象棋快手 v2.7.3
+# 象棋快手 v2.7.4
 
 [下载发行版](https://github.com/zhaopengbo-0702/xiangqi-quick-hands/releases/latest) · [逐版更新记录](CHANGELOG.md) · [评估公式](docs/evaluation-mapping.md) · [问题反馈](https://github.com/zhaopengbo-0702/xiangqi-quick-hands/issues) · [自动检查](https://github.com/zhaopengbo-0702/xiangqi-quick-hands/actions)
 
 Chrome / Edge 浏览器扩展，内置 Pikafish WASM 与 NNUE，支持 Xiangqi.com 对局、题库和棋盘分析。面板支持拖动、整体缩放、后台运行，以及运行中调整搜索参数。
 
-**2.7.3** 继续精简主面板，移除引擎名称整行、图下清零提示、图表初始等待文字和页脚搜索限制说明，释放对应空间。杀棋提示简化为“发现强制杀棋”等表述。曲线继续按自己控制的棋子计算，并保留第 0 手真实开局采集。评分沿用 PCHIP 插值，转换链、五段函数、系数和计算示例见 [评估转换与插值函数](docs/evaluation-mapping.md)。
+**2.7.4** 移除图下常驻评分与默认提示，鼠标悬停、手指触摸记录点或键盘聚焦时，在图内浮层显示手数和评估值，离开后隐藏。曲线继续按自己控制的棋子计算，并保留第 0 手真实开局采集。评分公式见 [评估转换与插值函数](docs/evaluation-mapping.md)。
 
 ## 安装与更新
 
-使用 Chrome / Edge 116 或更新版本，下载 [xiangqi-quick-hands-v2.7.3.zip](https://github.com/zhaopengbo-0702/xiangqi-quick-hands/releases/download/v2.7.3/xiangqi-quick-hands-v2.7.3.zip)。安装包内含扩展、引擎、网络、对应源码和许可证。
+使用 Chrome / Edge 116 或更新版本，下载 [xiangqi-quick-hands-v2.7.4.zip](https://github.com/zhaopengbo-0702/xiangqi-quick-hands/releases/download/v2.7.4/xiangqi-quick-hands-v2.7.4.zip)。安装包内含扩展、引擎、网络、对应源码和许可证。
 
 1. 解压安装包，保留整个目录。
 2. Edge 打开 `edge://extensions`；Chrome 打开 `chrome://extensions`。
 3. 开启“开发人员模式”，点击“加载解压缩的扩展”，选择直接包含 `manifest.json` 的目录。
 4. 更新旧版时，用新版文件替换原目录，再点击扩展的“重新加载”。
-5. 刷新棋盘，确认面板标题为 **象棋快手 v2.7.3**。等待“引擎就绪”，点击“开始自动”或“走一步”。首次预热需要数秒。
+5. 刷新棋盘，确认面板标题为 **象棋快手 v2.7.4**。等待“引擎就绪”，点击“开始自动”或“走一步”。首次预热需要数秒。
 
 源码安装时选择仓库中的 `extension` 文件夹。浏览器工具栏的扩展按钮可以展开或收起面板，安装目录用于浏览器持续加载扩展。安装包使用带版本号的文件名，校验值见同版 `SHA256SUMS.txt`。
 
@@ -38,15 +38,15 @@ Chrome / Edge 浏览器扩展，内置 Pikafish WASM 与 NNUE，支持 Xiangqi.c
 
 “搜索模式”“最长计算”和自适应模式下的“决策偏好”均可在运行中调整，新选择从下一步生效。偏好滑条的百分比实时更新，松开后保存，刷新后恢复。
 
-“反侦查辅助（操作变化）”开关位于参数区，控制选子前后的随机短暂停顿和点击位置变化，设置会保存，运行中切换从下一步生效。
+“反侦查辅助”开关位于参数区，控制选子前后的随机短暂停顿和点击位置变化，设置会保存，运行中切换从下一步生效。
 
 ## 本局评估走势
 
-![象棋快手 v2.7.3 本局评估走势](docs/assets/evaluation-history-panel.png)
+![象棋快手 v2.7.4 本局评估走势](docs/assets/evaluation-history-panel.png)
 
 界面示例，使用模拟评估数据。
 
-主面板中的平滑走势曲线随每次成功计算更新，横轴为评估所在局面的手数，每一手表示一个单方步；纵轴固定为 −1 至 +1。参与对局时，曲线自动按自己控制的棋子计算，正值自己有利、负值对方有利，零线表示均势，双方轮流行棋时保持同一比较方向。普通记录点提示直接显示“第 35 手 · +0.743158”这样的手数与评估值。
+主面板中的平滑走势曲线随每次成功计算更新，横轴为评估所在局面的手数，每一手表示一个单方步；纵轴固定为 −1 至 +1。参与对局时，曲线自动按自己控制的棋子计算，正值自己有利、负值对方有利，零线表示均势，双方轮流行棋时保持同一比较方向。图下没有常驻评估详情或默认提示；鼠标悬停、手指触摸记录点或键盘聚焦时，图内浮层显示对应手数和评估值，移开、松开或失去焦点后隐藏。
 
 连线采用保形分段三次 Hermite 插值（PCHIP），相邻段的一阶导数连续，段内保持在相邻两个评估点的数值范围内。曲线平滑仅影响连线，实际评估点不变。这一步用于连接对局中的记录点，与下节将原始评分转换为面板分数的 PCHIP 用途不同。全部节点斜率、Hermite 函数和 SVG 控制点公式见 [走势记录与平滑公式](docs/evaluation-history.md)。
 

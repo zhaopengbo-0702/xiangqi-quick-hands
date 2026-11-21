@@ -1087,6 +1087,40 @@ function evaluationHistory(app) {
   });
 }
 
+test('evaluation details appear only near a recorded point or on keyboard focus and collapse after interaction', async () => {
+  const app = await controller({ mode: 'analysis', canAnalyze: true, active: false, participant: false }, { pathname: '/analysis/board' });
+  await app.click('single');
+  await app.resolveSearch(0, { score: { type: 'cp', value: 50 } });
+  const chart = app.elements.get('evaluation-chart'), tooltip = app.elements.get('evaluation-tooltip');
+  assert.equal(tooltip.classList.contains('hidden'), true);
+  assert.equal(tooltip.textContent, '');
+  const rectangle = chart.getBoundingClientRect();
+  const event = (type, x, y, pointerType = 'mouse') => chart.dispatchEvent({ type, pointerType,
+    clientX: rectangle.left + x * rectangle.width / 332,
+    clientY: rectangle.top + y * rectangle.height / 154 });
+  event('pointermove', 32, 43);
+  assert.equal(tooltip.classList.contains('hidden'), false);
+  assert.equal(tooltip.textContent, '第 0 手 · +0.500000');
+  event('pointermove', 250, 43);
+  assert.equal(tooltip.classList.contains('hidden'), true, 'blank chart areas do not keep a tooltip open');
+  event('pointermove', 32, 43);
+  event('pointerleave', 32, 43);
+  assert.equal(tooltip.classList.contains('hidden'), true);
+  event('pointerdown', 32, 43, 'touch');
+  assert.equal(tooltip.classList.contains('hidden'), false);
+  event('pointerup', 32, 43, 'touch');
+  assert.equal(tooltip.classList.contains('hidden'), true);
+  event('pointerdown', 32, 43, 'touch');
+  event('pointercancel', 32, 43, 'touch');
+  assert.equal(tooltip.classList.contains('hidden'), true);
+  const focusedPoint = { closest: () => ({ dataset: { ply: '0' } }) };
+  chart.dispatchEvent({ type: 'focusin', target: focusedPoint });
+  assert.equal(tooltip.classList.contains('hidden'), false);
+  chart.dispatchEvent({ type: 'focusout', target: focusedPoint });
+  assert.equal(tooltip.classList.contains('hidden'), true);
+  assert.equal(tooltip.textContent, '');
+});
+
 function assertShapePreservingCurve(app, count, requireNonzeroSlope = false) {
   const curve = app.elements.get('evaluation-line').getAttribute('d');
   assert.ok(!/NaN|Infinity/.test(curve));
@@ -1315,7 +1349,7 @@ test('opening capture derives its score direction from the initial FEN side to m
   assert.equal(app.calls.find(call => call.type === 'XQ_ANALYZE').fen, initialBlack);
   await app.resolveSearch(0, { score: { type: 'mate', value: 3 } });
   assert.deepEqual(evaluationHistory(app).map(({ ply, value }) => ({ ply, value })), [{ ply: 0, value: -1 }]);
-  assert.match(app.elements.get('evaluation-tooltip').textContent, /对方杀棋 3/);
+  assert.match(app.elements.get('evaluation-points').innerHTML, /对方杀棋 3/);
   assert.equal(app.plays.length, 0);
 });
 
@@ -1341,7 +1375,7 @@ test('the controlled black perspective stays fixed when the side to move changes
   assert.deepEqual(evaluationHistory(app).map(({ ply, value }) => ({ ply, value })), [{ ply: 0, value: .5 }, { ply: 1, value: .5 }]);
   assert.equal(app.elements.get('score').textContent, '评估 +0.500000');
   assert.equal(app.elements.get('evaluation-chart').dataset.perspective, 'black');
-  assert.match(app.elements.get('evaluation-tooltip').textContent, /第 1 手 · \+0\.500000/);
+  assert.match(app.elements.get('evaluation-points').innerHTML, /第 1 手 · \+0\.500000/);
 });
 
 test('analysis, spectating and unknown player identity use an explicit stable red fallback', async () => {
@@ -1378,7 +1412,7 @@ test('recognizing the controlled black player reorients all existing samples con
   app.setState({ participant: true, moveCount: 2, turn: 'black', boardKey: 'analysis:player-recognized' });
   await app.advance(110);
   assert.deepEqual(evaluationHistory(app).map(point => point.value), [-.5, -1]);
-  assert.match(app.elements.get('evaluation-tooltip').textContent, /对方杀棋 3/);
+  assert.match(app.elements.get('evaluation-points').innerHTML, /对方杀棋 3/);
   await app.click('single');
   await app.resolveSearch(2, { score: { type: 'cp', value: 150 } });
   assert.deepEqual(evaluationHistory(app).map(({ ply, value }) => ({ ply, value })), [{ ply: 0, value: -.5 }, { ply: 1, value: -1 }, { ply: 2, value: .7 }]);
@@ -1569,7 +1603,7 @@ test('mate samples use the controlled player endpoints and keep explicit mate la
     assert.equal(points.length, 1);
     assert.equal(points[0].value, expected);
     assert.match(app.elements.get('evaluation-points').innerHTML, /杀棋/);
-    assert.match(app.elements.get('evaluation-tooltip').textContent, mate > 0 ? /我方杀棋 3/ : /对方杀棋 3/);
+    assert.match(app.elements.get('evaluation-points').innerHTML, mate > 0 ? /我方杀棋 3/ : /对方杀棋 3/);
     assert.equal(app.elements.get('score').textContent, `杀棋 ${mate}`);
   }
 });
