@@ -44,7 +44,7 @@ async function main() {
           const r = element.getBoundingClientRect();
           return { x: r.x, y: r.y, width: r.width, height: r.height, right: r.right, bottom: r.bottom };
         };
-        const text = root.getElementById('footer');
+        const text = root.getElementById('plies');
         const range = document.createRange(); range.selectNodeContents(text);
         const textRect = range.getBoundingClientRect();
         return {
@@ -263,10 +263,11 @@ async function main() {
 
     await seed();
     const beforeLong = await compact();
-    await page.locator('#engine-name').evaluate(element => { element.textContent = 'Pikafish 本地引擎状态说明 '.repeat(45); });
+    const previousStatus=await page.locator('#status').textContent();
+    await page.locator('#status').evaluate(element => { element.textContent = '棋盘状态说明 '.repeat(45); });
     await page.waitForFunction(height => document.getElementById('xq-quick-hands').shadowRoot.getElementById('panel').getBoundingClientRect().height > height + 50, beforeLong.panel.height);
     const long = await compact(); await fits({ width: 1600, height: 1600 });
-    await page.locator('#engine-name').evaluate(element => { element.textContent = 'Pikafish · 本地引擎'; });
+    await page.locator('#status').evaluate((element,text) => { element.textContent = text; },previousStatus);
     await page.waitForFunction(height => document.getElementById('xq-quick-hands').shadowRoot.getElementById('panel').getBoundingClientRect().height < height - 50, long.panel.height);
     const short = await compact(); close(short.panel.height, beforeLong.panel.height, 'Short content reclaims its height', 3);
     checks.push('dynamic-content-grows-and-shrinks-without-blank-tail');
@@ -437,7 +438,7 @@ async function main() {
       await displayScore({ type: 'cp', value: -cp }, '评估 -' + mapped.toFixed(6), negative);
     }
     checks.push('pchip-four-anchors-odd-symmetry-and-rounded-display-meaning-boundaries');
-    for (const [value, meaning] of [[3, '引擎发现强制杀棋'], [-3, '引擎发现对方强制杀棋']]) {
+    for (const [value, meaning] of [[3, '发现强制杀棋'], [-3, '发现对方强制杀棋']]) {
       await displayScore({ type: 'mate', value }, '杀棋 ' + value, meaning);
     }
     checks.push('real-controller-preserves-explicit-positive-and-negative-mate');

@@ -32,9 +32,9 @@
     .scale-tools div{display:flex;align-items:center;gap:6px}.scale-button{min-width:34px;min-height:30px;padding:2px 7px;border:1px solid #bdccc3;border-radius:4px;background:#f6f8f7;color:#243c2e;font-weight:700}.scale-tools output{min-width:42px;text-align:center;font-variant-numeric:tabular-nums}
     .variation{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;color:#485d51;margin-bottom:12px}.variation input{width:17px;height:17px;accent-color:#176d4d;margin:0}
     .pause-request{flex:none;padding:10px 12px;background:#fff5df;border-bottom:1px solid #e6c891;color:#674b20;font-size:14px}.pause-request p{margin:0 0 8px;line-height:1.5}.pause-request div{display:flex;gap:8px}.pause-request button{flex:1;min-height:34px;border:1px solid #d7b7a5;border-radius:4px;background:#fff;color:#583d2b}.pause-request #pause-confirm{background:#a52b32;color:#fff;border-color:#a52b32}.stop-reason{margin-top:10px;padding:8px;border:1px solid #e2c6bc;border-radius:4px;background:#fff5f1;color:#70402e;font-size:14px;overflow-wrap:anywhere}
-    .icon:hover{background:#e6eeea}img{display:inline-block;flex:none}main{padding:12px} .state{display:flex;align-items:center;gap:7px;min-height:24px}
+    .icon:hover{background:#e6eeea}img{display:inline-block;flex:none}main{padding:12px} .state{display:flex;align-items:center;gap:7px;min-height:24px;margin-bottom:12px}
     .dot{width:7px;height:7px;flex:none;border-radius:50%;background:#8a9690}.dot[data-kind=ready]{background:#19845d}.dot[data-kind=busy]{background:#c57b12}.dot[data-kind=error]{background:#ba3137}
-    #status{flex:1;line-height:1.6;overflow-wrap:anywhere}.engine{color:#58665e;font-size:14px;margin:3px 0 14px 14px;overflow-wrap:anywhere}
+    #status{flex:1;line-height:1.6;overflow-wrap:anywhere}
     .settings{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;color:#5c6862}select{max-width:155px;padding:5px 6px;border:1px solid #d5ddd8;border-radius:4px;background:white;color:#263a30}
     input[type=range]{width:112px;min-width:40px;flex:1;accent-color:#176d4d;margin:0}#balance-label{font-size:14px;min-width:64px;text-align:right}.importance{display:flex;align-items:center;justify-content:space-between;font-size:14px;color:#58665e;margin-top:9px;gap:8px}
     .actions{display:grid;grid-template-columns:1.35fr 1fr;gap:8px} .command{display:flex;align-items:center;justify-content:center;gap:6px;min-height:40px;border:1px solid #ccd7d0;border-radius:5px;background:#f6f8f7;color:#253c2e;font-weight:600}
@@ -43,13 +43,13 @@
     #side{font-size:14px;color:#58665e}.metrics{display:flex;flex-wrap:wrap;justify-content:space-between;color:#58665e;font-size:14px;gap:5px;margin-top:7px;font-variant-numeric:tabular-nums}.score-meaning{font-size:14px;line-height:1.6;color:#58665e;margin-top:4px;overflow-wrap:anywhere}.pv{color:#58665e;font-family:Consolas,monospace;font-size:14px;line-height:1.6;overflow-wrap:anywhere;margin-top:9px;max-height:5em;overflow:auto}
     .evaluation-history{margin-top:12px;border-top:1px solid #e7eae8;padding-top:10px}.evaluation-heading{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:14px}.evaluation-heading b{font-size:15px;color:#263a30}.evaluation-heading span{color:#58665e;font-variant-numeric:tabular-nums}
     .evaluation-plot{position:relative;margin-top:6px;border:1px solid #e0e7e2;border-radius:5px;overflow:hidden;background:#fafcfb}#evaluation-chart{display:block;width:100%;height:auto;overflow:visible;font-family:inherit;font-size:12px;color:#58665e;touch-action:pan-y}.evaluation-grid{stroke:#dce4de;stroke-width:1}.evaluation-zero{stroke:#9baea1;stroke-dasharray:3 3}.evaluation-axis{fill:#58665e}.evaluation-line{fill:none;stroke:#176d4d;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}.evaluation-point{fill:#176d4d;stroke:#fff;stroke-width:1.2;cursor:crosshair}.evaluation-point[data-mate=true]{fill:#ad393d}.evaluation-point:focus{outline:none;stroke:#263a30;stroke-width:2}.evaluation-hit{fill:transparent;pointer-events:all;cursor:crosshair}#evaluation-cursor{stroke:#7d9486;stroke-width:1;stroke-dasharray:3 3;pointer-events:none}#evaluation-active{fill:#fff;stroke:#176d4d;stroke-width:2;pointer-events:none}
-    #evaluation-empty{position:absolute;inset:0;display:grid;place-items:center;font-size:14px;color:#63756a;pointer-events:none}#evaluation-tooltip{min-height:22px;margin-top:5px;font-size:13px;line-height:1.6;color:#485d51;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.evaluation-legend{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 8px;font-size:12px;color:#63756a}
-    footer{display:flex;flex-wrap:wrap;gap:5px;align-items:center;justify-content:space-between;padding:9px 16px 9px 12px;background:#f7f9f8;border-top:1px solid #e7eae8;color:#58665e;font-size:14px}
+    #evaluation-tooltip{min-height:22px;margin-top:5px;font-size:13px;line-height:1.6;color:#485d51;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+    footer{display:flex;flex-wrap:wrap;gap:5px;align-items:center;justify-content:flex-end;padding:9px 16px 9px 12px;background:#f7f9f8;border-top:1px solid #e7eae8;color:#58665e;font-size:14px}
     .hidden{display:none!important}:focus-visible{outline:2px solid #158a60;outline-offset:2px}
   </style><section id="panel" class="panel" aria-label="象棋快手控制台">
   <header id="panel-header" title="拖动标题栏移动；拖动边缘或四角同步放大文字与按钮；双击标题栏恢复默认"><span class="brand">帥</span><strong id="panel-title">象棋快手</strong><button id="quick-stop" class="icon hidden" title="申请暂停（需确认）" aria-label="申请暂停（需确认）">${icon('pause')}</button><button id="reconnect" class="icon" title="重新连接引擎" aria-label="重新连接引擎">${icon('refresh-cw')}</button><button id="collapse" class="icon" title="收起控制台" aria-label="收起控制台">${icon('minus')}</button></header>
   <div id="pause-request" class="pause-request hidden" role="group" aria-label="暂停确认"><p>确认暂停本局自动行棋？</p><div><button id="pause-confirm">确认暂停</button><button id="pause-cancel">继续运行</button></div></div>
-  <div id="body"><main><div class="scale-tools"><span>界面大小</span><div><button id="scale-down" class="scale-button" title="缩小文字和按钮" aria-label="缩小文字和按钮">A−</button><output id="scale-label">100%</output><button id="scale-up" class="scale-button" title="放大文字和按钮" aria-label="放大文字和按钮">A+</button></div></div><div class="state"><span class="dot" id="dot"></span><span id="status" role="status" aria-live="polite">等待棋盘</span></div><div class="engine" id="engine-name">Pikafish · 本地引擎</div>
+  <div id="body"><main><div class="scale-tools"><span>界面大小</span><div><button id="scale-down" class="scale-button" title="缩小文字和按钮" aria-label="缩小文字和按钮">A−</button><output id="scale-label">100%</output><button id="scale-up" class="scale-button" title="放大文字和按钮" aria-label="放大文字和按钮">A+</button></div></div><div class="state"><span class="dot" id="dot"></span><span id="status" role="status" aria-live="polite">等待棋盘</span></div>
   <label class="settings" title="运行中可更改，从下一步生效">搜索模式<select id="mode" aria-label="搜索模式"><option value="adaptive" selected>自适应</option><option value="fixed">固定时限</option></select></label>
   <label class="settings" id="balance-row" title="运行中可拖动，从下一步生效">决策偏好<input id="balance" type="range" aria-label="决策偏好" min="0" max="1" step="0.05" value="0.65"><output id="balance-label">稳健 65%</output></label>
   <label class="settings" title="运行中可更改，从下一步生效">最长计算<select id="budget" aria-label="最长计算"><option value="800">0.8 秒</option><option value="1800">1.8 秒</option><option value="2800">2.8 秒</option><option value="3500" selected>3.5 秒</option></select></label>
@@ -63,10 +63,10 @@
   <g class="evaluation-axis"><text x="25" y="18" text-anchor="end">+1</text><text x="25" y="76" text-anchor="end">0</text><text x="25" y="134" text-anchor="end">−1</text><text id="evaluation-x-start" x="32" y="147">0</text><text id="evaluation-x-middle" x="176" y="147" text-anchor="middle">5</text><text id="evaluation-x-end" x="320" y="147" text-anchor="end">10 手</text></g>
   <rect x="32" y="14" width="288" height="58" fill="#176d4d" fill-opacity=".025"/><rect x="32" y="72" width="288" height="58" fill="#ad393d" fill-opacity=".025"/>
   <path id="evaluation-line" class="evaluation-line" d=""/><g id="evaluation-points"></g><path id="evaluation-cursor" class="hidden" d=""/><circle id="evaluation-active" class="hidden" r="4"/>
-  </svg><div id="evaluation-empty">等待首个评估</div></div><div id="evaluation-tooltip">每次有效计算记录一个点</div><div class="evaluation-legend"><span>新局自动清零</span></div></section>
+  </svg></div><div id="evaluation-tooltip">每次有效计算记录一个点</div></section>
   <div class="importance"><span id="importance">重要性 -</span><span id="allocated">预算 -</span></div><div id="pv" class="pv"></div>
   <div id="stop-reason" class="stop-reason hidden" role="status"></div>
-  </main><footer><span id="footer">最多 5 秒 · 至少 6 层</span><span id="plies">第 0 手</span></footer></div>
+  </main><footer><span id="plies">第 0 手</span></footer></div>
   ${['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'].map(direction => `<span class="resize-handle" data-resize="${direction}" aria-hidden="true"></span>`).join('')}</section>`;
   document.documentElement.append(host);
   const $ = id => root.getElementById(id);
@@ -121,7 +121,7 @@
     }
     if (score.type === 'mate') {
       $('score').textContent = `杀棋 ${score.value}`;
-      $('score-meaning').textContent = score.value > 0 ? '引擎发现强制杀棋' : score.value < 0 ? '引擎发现对方强制杀棋' : '引擎报告终局杀棋';
+      $('score-meaning').textContent = score.value > 0 ? '发现强制杀棋' : score.value < 0 ? '发现对方强制杀棋' : '引擎报告终局杀棋';
       return;
     }
     // Interpolate the unrounded v2.6.0 value: its displayed six decimals lose
@@ -246,7 +246,6 @@
     evaluationChart.dataset.perspective = evaluationSide;
     evaluationChart.dataset.controlled = String(evaluationControlled);
     evaluationChart.setAttribute('aria-label', '本局评估曲线，横轴为手数，纵轴范围负1到正1');
-    $('evaluation-empty').classList.toggle('hidden', evaluationPoints.length > 0);
     hideEvaluationPoint();
   }
   function clearEvaluationHistory() {
@@ -606,11 +605,8 @@
     status('正在预热引擎', 'busy');
     controls();
     try {
-      const result = await rpc('XQ_WARMUP');
+      await rpc('XQ_WARMUP');
       if (destroyed) return;
-      const backend = result.backend === 'wasm' ? '浏览器引擎' : '本地引擎';
-      $('engine-name').textContent = `${result.engine || 'Pikafish'} · ${result.nnue ? 'NNUE ' : ''}${backend}`;
-      $('engine-name').title = result.nativeError ? `原生连接不可用，使用皮卡鱼 NNUE 浏览器引擎：${result.nativeError}` : '';
       ready = true;
       if (preservedStatus) status(preservedStatus.text, preservedStatus.kind);
       else status('引擎就绪');
@@ -754,7 +750,7 @@
         'unstable-principal': '最佳着法反复变化', 'volatile-score': '评分波动较大',
         'material-tactics': '涉及重要子力交换', 'limited-probe': '候选比较尚不充分',
         'balanced-search': '局面相对稳定', 'king-in-check': '当前正在应将',
-        'winning-mate': '引擎发现强制杀棋', 'defensive-mate': '需要寻找防守',
+        'winning-mate': '发现强制杀棋', 'defensive-mate': '需要寻找防守',
         'forced-move': '只有一个合法着法', 'only-legal-move': '只有一个合法着法', 'fixed-budget': '固定时间计算',
       };
       $('importance').title = (result.reason || []).map(reason => reasonLabels[reason] || reason).join('、');

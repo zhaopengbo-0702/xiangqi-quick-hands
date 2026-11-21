@@ -262,9 +262,10 @@ async function controller(initial = {}, options = {}) {
   };
 }
 
-test('the panel identifies the engine and NNUE confirmed by warmup', async () => {
+test('engine warmup enables the compact panel without an engine label', async () => {
   const app = await controller({}, {warmupReply: {engine:'Pikafish 2026-09-06', nnue:'pikafish.nnue'}});
-  assert.match(app.elements.get('engine-name').textContent, /Pikafish 2026-09-06.*NNUE/);
+  assert.equal(app.elements.has('engine-name'), false);
+  assert.equal(app.elements.get('status').textContent, '引擎就绪');
   assert.equal(app.elements.get('single').disabled, false);
   const unavailable = await controller({}, {warmupReply: {ok:false, error:'Native host is not installed'}});
   assert.equal(unavailable.elements.get('single').disabled, true);
@@ -1067,8 +1068,8 @@ test('missing and invalid engine evaluations display placeholders instead of fab
 
 test('mate results remain explicit and separate from finite normalized evaluations', async () => {
   for (const [value, meaning] of [
-    [3, '引擎发现强制杀棋'],
-    [-3, '引擎发现对方强制杀棋'],
+    [3, '发现强制杀棋'],
+    [-3, '发现对方强制杀棋'],
     [0, '引擎报告终局杀棋'],
   ]) {
     const app = await controller();
@@ -1129,7 +1130,7 @@ test('the game evaluation curve starts empty and records only after a move is co
   app.confirmations[0].resolve();
   await flush();
   assert.deepEqual(evaluationHistory(app).map(({ ply, value }) => ({ ply, value })), [{ ply: 0, value: .5 }]);
-  assert.equal(app.elements.get('evaluation-empty').classList.contains('hidden'), true);
+  assert.equal(app.elements.has('evaluation-empty'), false);
 });
 
 test('the game curve follows the controlled player for both red and black while the numeric score keeps the searching side perspective', async () => {
@@ -1437,7 +1438,7 @@ test('changing game identity clears the old curve before the first new evaluatio
   app.setState({ gameKey: 'game:new', boardKey: 'game:new-opening', moveCount: 0, turn: 'red' });
   await app.advance(110);
   assert.deepEqual(evaluationHistory(app), []);
-  assert.equal(app.elements.get('evaluation-empty').classList.contains('hidden'), false);
+  assert.equal(app.elements.has('evaluation-empty'), false);
   await app.click('single');
   await app.resolveSearch(1, { score: { type: 'cp', value: -150 } });
   assert.deepEqual(evaluationHistory(app).map(({ ply, value }) => ({ ply, value })), [{ ply: 0, value: -.7 }]);
@@ -1636,7 +1637,7 @@ test('shallow searches stop without moving unless they prove a positive mate', a
   await knownMate.resolveSearch(0, { depth: 1, score: { type: 'mate', value: 2 } });
   assert.equal(knownMate.plays.length, 1);
   assert.equal(knownMate.elements.get('score').textContent, '杀棋 2');
-  assert.equal(knownMate.elements.get('score-meaning').textContent, '引擎发现强制杀棋');
+  assert.equal(knownMate.elements.get('score-meaning').textContent, '发现强制杀棋');
 
   const losingMate = await controller();
   await losingMate.click('single');

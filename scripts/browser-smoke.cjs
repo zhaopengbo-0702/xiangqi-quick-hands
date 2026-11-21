@@ -293,7 +293,7 @@ async function main() {
         const panels=document.querySelectorAll('#xq-quick-hands');
         const panel=panels.length===1&&panels[0].shadowRoot;
         return panel&&!panel.getElementById('single').disabled&&!panel.getElementById('auto').disabled&&
-          panel.getElementById('engine-name').textContent.includes('NNUE');
+          panel.getElementById('status').textContent==='引擎就绪';
       },null,{timeout:40000});
       startup=await worker.evaluate(()=>chrome.runtime.sendMessage({target:'offscreen',type:'XQ_ENGINE_WARMUP'}));
       assert.equal(startup.ok,true,JSON.stringify(startup));
@@ -463,7 +463,7 @@ async function main() {
     const elapsed = Date.now()-started;
     const panel = await page.evaluate(() => {
       const root=document.getElementById('xq-quick-hands').shadowRoot;
-      return Object.fromEntries(['engine-name','status','move','depth','score','elapsed','importance','allocated','pv'].map(id=>[id,root.getElementById(id).textContent]));
+      return Object.fromEntries(['status','move','depth','score','elapsed','importance','allocated','pv'].map(id=>[id,root.getElementById(id).textContent]));
     });
     const curve = await page.evaluate(() => {
       const root=document.getElementById('xq-quick-hands').shadowRoot;
@@ -488,7 +488,8 @@ async function main() {
     const initialPlies=playerSide==='black'?1:0;
     assert.equal(boardState.moveCount,initialPlies+(backgroundScenario?5:syncScenario||reloadScenario||ackScenario?3:1));
     if(!backgroundScenario)assert.equal(boardState.lastMove,panel.move);
-    assert.match(panel['engine-name'], /Pikafish.*NNUE/, 'The production extension must identify the verified Pikafish NNUE backend');
+    assert.match(startup.result.name, /Pikafish/, 'The actual warmed backend is Pikafish');
+    assert.ok(startup.result.nnue, 'The actual warmed backend reports its NNUE network');
     assert.ok(Number(panel.depth.match(/\d+/)?.[0])>=6,'Real Pikafish search must finish at least six plies');
     assert.ok(panel.pv.includes(panel.move),'The displayed move must have a searched principal variation');
     assert.equal(curve.perspective,playerSide,'The production curve follows the controlled side');
@@ -567,7 +568,7 @@ async function main() {
     await fs.writeFile(path.join(results,artifactPrefix+'.json'),JSON.stringify(report,null,2)+'\n');
     console.log(JSON.stringify(report,null,2));
   } catch(error) {
-    if(page){await fs.mkdir(results,{recursive:true});await page.screenshot({path:path.join(results,artifactPrefix+'-failed.png'),fullPage:true}).catch(()=>{});console.error('PANEL',await page.evaluate(()=>{const root=document.getElementById('xq-quick-hands')?.shadowRoot;return root&&{status:root.getElementById('status').textContent,engine:root.getElementById('engine-name').textContent}}).catch(()=>''));}
+    if(page){await fs.mkdir(results,{recursive:true});await page.screenshot({path:path.join(results,artifactPrefix+'-failed.png'),fullPage:true}).catch(()=>{});console.error('PANEL',await page.evaluate(()=>{const root=document.getElementById('xq-quick-hands')?.shadowRoot;return root&&{status:root.getElementById('status').textContent}}).catch(()=>''));}
     const worker = context?.serviceWorkers()[0];
     if (worker) console.error('ENGINE', await worker.evaluate(async () => {
       try { return await chrome.runtime.sendMessage({target:'offscreen',type:'XQ_ENGINE_WARMUP'}); }
