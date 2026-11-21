@@ -43,7 +43,7 @@
     #side{font-size:14px;color:#58665e}.metrics{display:flex;flex-wrap:wrap;justify-content:space-between;color:#58665e;font-size:14px;gap:5px;margin-top:7px;font-variant-numeric:tabular-nums}.score-meaning{font-size:14px;line-height:1.6;color:#58665e;margin-top:4px;overflow-wrap:anywhere}.pv{color:#58665e;font-family:Consolas,monospace;font-size:14px;line-height:1.6;overflow-wrap:anywhere;margin-top:9px;max-height:5em;overflow:auto}
     .evaluation-history{margin-top:12px;border-top:1px solid #e7eae8;padding-top:10px}.evaluation-heading{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:14px}.evaluation-heading b{font-size:15px;color:#263a30}.evaluation-heading span{color:#58665e;font-variant-numeric:tabular-nums}
     .evaluation-plot{position:relative;margin-top:6px;border:1px solid #e0e7e2;border-radius:5px;overflow:hidden;background:#fafcfb}#evaluation-chart{display:block;width:100%;height:auto;overflow:visible;font-family:inherit;font-size:12px;color:#58665e;touch-action:pan-y}.evaluation-grid{stroke:#dce4de;stroke-width:1}.evaluation-zero{stroke:#9baea1;stroke-dasharray:3 3}.evaluation-axis{fill:#58665e}.evaluation-line{fill:none;stroke:#176d4d;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}.evaluation-point{fill:#176d4d;stroke:#fff;stroke-width:1.2;cursor:crosshair}.evaluation-point[data-mate=true]{fill:#ad393d}.evaluation-point:focus{outline:none;stroke:#263a30;stroke-width:2}.evaluation-hit{fill:transparent;pointer-events:all;cursor:crosshair}#evaluation-cursor{stroke:#7d9486;stroke-width:1;stroke-dasharray:3 3;pointer-events:none}#evaluation-active{fill:#fff;stroke:#176d4d;stroke-width:2;pointer-events:none}
-    #evaluation-empty{position:absolute;inset:0;display:grid;place-items:center;font-size:14px;color:#63756a;pointer-events:none}#evaluation-tooltip{min-height:22px;margin-top:5px;font-size:13px;line-height:1.6;color:#485d51;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.evaluation-legend{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:#63756a}
+    #evaluation-empty{position:absolute;inset:0;display:grid;place-items:center;font-size:14px;color:#63756a;pointer-events:none}#evaluation-tooltip{min-height:22px;margin-top:5px;font-size:13px;line-height:1.6;color:#485d51;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.evaluation-legend{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 8px;font-size:12px;color:#63756a}
     footer{display:flex;flex-wrap:wrap;gap:5px;align-items:center;justify-content:space-between;padding:9px 16px 9px 12px;background:#f7f9f8;border-top:1px solid #e7eae8;color:#58665e;font-size:14px}
     .hidden{display:none!important}:focus-visible{outline:2px solid #158a60;outline-offset:2px}
   </style><section id="panel" class="panel" aria-label="象棋快手控制台">
@@ -58,12 +58,12 @@
   <div class="result"><output id="move" class="move">-</output><span id="side">-</span></div><div class="metrics"><span id="depth">深度 -</span><span id="score">评估 -</span><span id="elapsed">耗时 -</span></div>
   <div id="score-meaning" class="score-meaning">暂无有效评估</div>
   <section class="evaluation-history" aria-label="本局评估走势"><div class="evaluation-heading"><b>本局评估走势</b><span id="evaluation-summary">已记录 0 个局面</span></div>
-  <div class="evaluation-plot"><svg id="evaluation-chart" viewBox="0 0 332 154" role="group" aria-label="本局评估曲线，横轴为手数，纵轴为红方视角评估，范围负1到正1">
+  <div class="evaluation-plot"><svg id="evaluation-chart" viewBox="0 0 332 154" role="group" aria-label="本局评估曲线，横轴为手数，纵轴为评估，范围负1到正1">
   <path class="evaluation-grid" d="M32,14H320 M32,72H320 M32,130H320"/><path class="evaluation-grid evaluation-zero" d="M32,72H320"/>
   <g class="evaluation-axis"><text x="25" y="18" text-anchor="end">+1</text><text x="25" y="76" text-anchor="end">0</text><text x="25" y="134" text-anchor="end">−1</text><text id="evaluation-x-start" x="32" y="147">0</text><text id="evaluation-x-middle" x="176" y="147" text-anchor="middle">5</text><text id="evaluation-x-end" x="320" y="147" text-anchor="end">10 手</text></g>
-  <rect x="32" y="14" width="288" height="58" fill="#b9383d" fill-opacity=".025"/><rect x="32" y="72" width="288" height="58" fill="#253a30" fill-opacity=".025"/>
+  <rect x="32" y="14" width="288" height="58" fill="#176d4d" fill-opacity=".025"/><rect x="32" y="72" width="288" height="58" fill="#ad393d" fill-opacity=".025"/>
   <path id="evaluation-line" class="evaluation-line" d=""/><g id="evaluation-points"></g><path id="evaluation-cursor" class="hidden" d=""/><circle id="evaluation-active" class="hidden" r="4"/>
-  </svg><div id="evaluation-empty">等待首个评估</div></div><div id="evaluation-tooltip">每次有效计算记录一个点</div><div class="evaluation-legend"><span>红方视角 · 正值红优 / 负值黑优</span><span>新局自动清零</span></div></section>
+  </svg><div id="evaluation-empty">等待首个评估</div></div><div id="evaluation-tooltip">每次有效计算记录一个点</div><div class="evaluation-legend"><span id="evaluation-viewpoint">我的视角 · 正值我优 / 负值对方优</span><span>新局自动清零</span></div></section>
   <div class="importance"><span id="importance">重要性 -</span><span id="allocated">预算 -</span></div><div id="pv" class="pv"></div>
   <div id="stop-reason" class="stop-reason hidden" role="status"></div>
   </main><footer><span id="footer">最多 5 秒 · 至少 6 层</span><span id="plies">第 0 手</span></footer></div>
@@ -169,13 +169,18 @@
   let evaluationLastPly = null;
   let evaluationPoints = [];
   let evaluationMaxPly = 10;
+  let evaluationSide = 'red';
+  let evaluationControlled = false;
+  let openingEvaluationRetryAt = 0;
   const evaluationChart = $('evaluation-chart');
   const chartX = ply => 32 + 288 * ply / evaluationMaxPly;
   const chartY = value => 72 - 58 * value;
   const chartCoordinate = value => Number(value.toFixed(6));
   const signedEvaluation = value => `${value > 0 ? '+' : ''}${value.toFixed(6)}`;
+  const evaluationPerspectiveLabel = () => evaluationControlled ? '我的视角' : '分析视角';
   function evaluationPointLabel(point) {
-    return `第 ${point.ply} 手 · 红方视角 ${point.mate ? `${point.value > 0 ? '红方' : '黑方'}杀棋 ${Math.abs(point.mate)}` : signedEvaluation(point.value)}`;
+    const favored = evaluationControlled ? (point.value > 0 ? '我方' : '对方') : (point.value > 0 ? '红方' : '黑方');
+    return `第 ${point.ply} 手 · ${evaluationPerspectiveLabel()} ${point.mate ? `${favored}杀棋 ${Math.abs(point.mate)}` : signedEvaluation(point.value)}`;
   }
   function showEvaluationPoint(index) {
     const point = evaluationPoints[index];
@@ -239,6 +244,10 @@
     }).join('');
     $('evaluation-summary').textContent = `已记录 ${evaluationPoints.length} 个局面`;
     evaluationChart.dataset.count = String(evaluationPoints.length);
+    evaluationChart.dataset.perspective = evaluationSide;
+    evaluationChart.dataset.controlled = String(evaluationControlled);
+    evaluationChart.setAttribute('aria-label', `本局评估曲线，${evaluationPerspectiveLabel()}，横轴为手数，纵轴范围负1到正1`);
+    $('evaluation-viewpoint').textContent = evaluationControlled ? '我的视角 · 正值我优 / 负值对方优' : '分析视角';
     $('evaluation-empty').classList.toggle('hidden', evaluationPoints.length > 0);
     hideEvaluationPoint();
   }
@@ -246,6 +255,9 @@
     evaluationGameKey = null;
     evaluationLastPly = null;
     evaluationPoints = [];
+    evaluationSide = 'red';
+    evaluationControlled = false;
+    openingEvaluationRetryAt = 0;
     renderEvaluationHistory();
   }
   function observeEvaluationGame(snapshot) {
@@ -259,13 +271,21 @@
     if (evaluationGameKey !== key || restarted) clearEvaluationHistory();
     evaluationGameKey = key;
     evaluationLastPly = snapshot.moveCount;
+    const controlled = snapshot.participant === true && ['red', 'black'].includes(snapshot.playerSide);
+    const side = controlled ? snapshot.playerSide : 'red';
+    if (evaluationSide !== side || evaluationControlled !== controlled) {
+      if (evaluationSide !== side) evaluationPoints = evaluationPoints.map(point => ({ ...point, value: point.value === 0 ? 0 : -point.value }));
+      evaluationSide = side;
+      evaluationControlled = controlled;
+      renderEvaluationHistory();
+    }
   }
   function recordEvaluation(score, snapshot) {
     if (snapshot.historyMode || !['red', 'black'].includes(snapshot.turn) || !Number.isSafeInteger(snapshot.moveCount) || snapshot.moveCount < 0) return;
     const mate = score?.type === 'mate' && Number.isFinite(score.value) ? score.value : 0;
     const normalized = normalizedEvaluation(score);
     if (normalized === null && mate === 0) return;
-    const value = (mate ? Math.sign(mate) : normalized) * (snapshot.turn === 'red' ? 1 : -1);
+    const value = (mate ? Math.sign(mate) : normalized) * (snapshot.turn === evaluationSide ? 1 : -1);
     evaluationPoints = evaluationPoints.filter(point => point.ply !== snapshot.moveCount);
     evaluationPoints.push({ ply: snapshot.moveCount, value: value === 0 ? 0 : value, mate });
     evaluationPoints.sort((a, b) => a.ply - b.ply);
@@ -605,6 +625,62 @@
     (location.pathname === '/computer-play' || /^\/game\/[^/]+\/?$/.test(location.pathname) || puzzleRoute(location.pathname) || analysisRoute(location.pathname));
   const onSupportedRoute = () => onBoard() || (location.origin === 'https://play.xiangqi.com' && ['/play', '/computer', '/puzzle', '/puzzle/custom', '/puzzle/stats', '/puzzle/record', '/puzzle/race'].includes(location.pathname));
 
+  function needsOpeningEvaluation(snapshot) {
+    return snapshot?.participant === true && ['red', 'black'].includes(snapshot.playerSide) &&
+      !snapshot.historyMode && snapshot.active && !snapshot.loading && !snapshot.hasPreMove && snapshot.connected !== false &&
+      !evaluationPoints.some(point => point.ply === 0) &&
+      !(snapshot.moveCount === 0 && snapshot.turn === snapshot.playerSide) &&
+      typeof snapshot.initFen === 'string' && /^[rnbakcpheRNBAKCPHE\d/]+ [wb] - - \d+ \d+$/.test(snapshot.initFen) &&
+      performance.now() >= openingEvaluationRetryAt;
+  }
+  async function captureOpeningEvaluation() {
+    if (destroyed || busy || !ready || !onBoard() || !needsOpeningEvaluation(current)) return true;
+    const snapshot = { ...current }, route = location.pathname, ticket = ++generation;
+    busy = true;
+    requestId = crypto.randomUUID();
+    updateBackgroundSubscription();
+    controls();
+    status('正在采集开局评估', 'busy');
+    watchdog = setTimeout(() => {
+      if (ticket !== generation) return;
+      openingEvaluationRetryAt = performance.now() + 2000;
+      stop('开局评估稍后重试', 'busy', true);
+    }, 5000);
+    try {
+      const result = await rpc('XQ_ANALYZE', { fen: snapshot.initFen, initialFen: snapshot.initFen, moves: [],
+        movetime: 650, mode: 'fixed', balance: Number($('balance').value), requestId });
+      if (ticket !== generation || location.pathname !== route) return false;
+      const latest = await adapter.read();
+      if (ticket !== generation || location.pathname !== route) return false;
+      if (latest.gameKey !== snapshot.gameKey || latest.initFen !== snapshot.initFen || latest.playerSide !== snapshot.playerSide ||
+          latest.participant !== true || latest.historyMode) return false;
+      if (!(result.depth >= 6) && !(result.score?.type === 'mate' && result.score.value !== 0)) throw new Error('开局评估尚未完成');
+      if (normalizedEvaluation(result.score) === null && !(result.score?.type === 'mate' && Number.isFinite(result.score.value) && result.score.value !== 0)) throw new Error('开局评估暂不可用');
+      current = latest;
+      observeEvaluationGame(latest);
+      recordEvaluation(result.score, { ...snapshot, moveCount: 0, turn: snapshot.initFen.split(' ')[1] === 'b' ? 'black' : 'red' });
+      return true;
+    } catch (error) {
+      if (ticket !== generation || handleContextError(error)) return false;
+      openingEvaluationRetryAt = performance.now() + 2000;
+      return true;
+    } finally {
+      if (ticket === generation) {
+        clearTimeout(watchdog);
+        watchdog = null;
+        requestId = null;
+        busy = false;
+        updateBackgroundSubscription();
+        status(auto ? '自动行棋已开启' : '引擎就绪');
+        controls();
+      }
+    }
+  }
+  async function moveWithOpeningEvaluation() {
+    if (!await captureOpeningEvaluation()) return;
+    if (current?.turn === current?.playerSide || analysisOnly(current)) await moveOnce();
+  }
+
   async function moveOnce() {
     if (destroyed || busy || !ready || !onBoard() || performance.now() < retryAfter) return;
     if (!isContextAlive()) { invalidateContext(); return; }
@@ -759,7 +835,8 @@
             else if (current.connected === false) status('等待对局重新连接，恢复后继续', 'busy');
             else if (current.loading) status('等待棋盘加载，恢复后继续', 'busy');
             else if (!current.active) stop('本局已结束');
-            else if (current.turn === current.playerSide && current.isMyTurnNow !== false && lastPlayed !== current.boardKey) void moveOnce();
+            else if (current.turn === current.playerSide && current.isMyTurnNow !== false && lastPlayed !== current.boardKey) void moveWithOpeningEvaluation();
+            else if (needsOpeningEvaluation(current)) void captureOpeningEvaluation();
             else status('等待对方行棋');
           }
           else if (ready && analysisOnly(current) && (recovered || changedBoard)) status('点击“分析局面”查看建议');
@@ -795,9 +872,9 @@
     updateBackgroundSubscription();
     status('自动行棋已开启');
     controls();
-    if (current?.turn === current?.playerSide) void moveOnce();
+    void moveWithOpeningEvaluation();
   };
-  $('single').onclick = () => void moveOnce();
+  $('single').onclick = () => void moveWithOpeningEvaluation();
   $('reconnect').onclick = () => {
     if (!isContextAlive()) { location.reload(); return; }
     stop(); delete host.dataset.bootAttempted; lastPlayed = null; void boot();

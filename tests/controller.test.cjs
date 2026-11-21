@@ -1132,14 +1132,272 @@ test('the game evaluation curve starts empty and records only after a move is co
   assert.equal(app.elements.get('evaluation-empty').classList.contains('hidden'), true);
 });
 
-test('the game curve uses a fixed red perspective while the numeric score keeps the searching side perspective', async () => {
-  for (const [side, score, expected] of [['red', 300, .9], ['black', 300, -.9], ['red', -300, -.9], ['black', -300, .9]]) {
+test('the game curve follows the controlled player for both red and black while the numeric score keeps the searching side perspective', async () => {
+  for (const [side, score, expected] of [['red', 300, .9], ['black', 300, .9], ['red', -300, -.9], ['black', -300, -.9]]) {
     const app = await controller({ turn: side, playerSide: side, moveCount: 7 });
     await app.click('single');
     await app.resolveSearch(0, { score: { type: 'cp', value: score } });
     assert.deepEqual(evaluationHistory(app).map(({ ply, value }) => ({ ply, value })), [{ ply: 7, value: expected }]);
     assert.equal(app.elements.get('score').textContent, `评估 ${score > 0 ? '+' : '-'}0.900000`);
+    assert.equal(app.elements.get('evaluation-chart').dataset.perspective, side);
+    assert.equal(app.elements.get('evaluation-chart').dataset.controlled, 'true');
+    assert.match(app.elements.get('evaluation-viewpoint').textContent, /我的视角/);
+    assert.doesNotMatch(app.elements.get('evaluation-viewpoint').textContent, /执红|执黑|先手|后手|红方视角/);
   }
+});
+
+test('black autoplay without an initial position records only actual evaluated plies one through thirty-five', async () => {
+  const app = await controller({ playerSide: 'black', turn: 'red', moveCount: 0, boardKey: 'game:initial-red-turn' });
+  await app.click('auto');
+  await app.advance(220);
+  assert.equal(app.searches.length, 0, 'black must wait for the first red move');
+  assert.deepEqual(evaluationHistory(app), [], 'no zero-ply evaluation is invented before black can calculate');
+  const plies = Array.from({ length: 18 }, (_, index) => 2 * index + 1);
+  for (const [index, ply] of plies.entries()) {
+    app.setState({ turn: 'black', moveCount: ply, boardKey: `game:black-to-move-${ply}` });
+    await app.advance(110);
+    assert.equal(app.searches.length, index + 1, `black calculates the position at ply ${ply}`);
+    await app.resolveSearch(index, { score: { type: 'cp', value: 50 + index } });
+    // The general-purpose play substitute always writes ply one; restore the real post-move state before polling.
+    app.setState({ turn: 'red', moveCount: ply + 1, boardKey: `game:after-black-${ply}` });
+    await app.advance(110);
+    assert.equal(app.plays.length, index + 1);
+  }
+  const points = evaluationHistory(app);
+  assert.equal(points.length, 18);
+  assert.deepEqual(points.map(point => point.ply), plies);
+  assert.equal(points[0].ply, 1);
+  assert.equal(points.at(-1).ply, 35);
+  assert.equal(points[0].value, .5);
+  assert.ok(points.every(point => point.value > 0), 'every positive searching-side score remains positive for the controlled black player');
+});
+
+test('black autoplay captures a genuine initial-position point without playing before its first turn', async () => {
+  const app = await controller({ initFen: START, playerSide: 'black', turn: 'red', moveCount: 0, boardKey: 'game:initial-red-turn' });
+  await app.click('auto');
+  assert.equal(app.searches.length, 1);
+  const openingRequest = app.calls.find(call => call.type === 'XQ_ANALYZE');
+  assert.equal(openingRequest.fen, START);
+  assert.equal(openingRequest.movetime, 650);
+  assert.equal(app.plays.length, 0);
+  assert.deepEqual(evaluationHistory(app), []);
+  app.setState({ turn: 'black', moveCount: 1, boardKey: 'game:first-black-turn' });
+  await app.resolveSearch(0, { score: { type: 'cp', value: 50 } });
+  assert.deepEqual(evaluationHistory(app).map(({ ply, value }) => ({ ply, value })), [{ ply: 0, value: -.5 }]);
+  assert.equal(app.plays.length, 0, 'the opening analysis result must never dispatch a move');
+  await app.advance(110);
+  assert.equal(app.searches.length, 2, 'the current black position is searched separately after the opening sample');
+  await app.resolveSearch(1, { score: { type: 'cp', value: 150 } });
+  assert.equal(app.plays.length, 1);
+  assert.deepEqual(evaluationHistory(app).map(({ ply, value }) => ({ ply, value })), [{ ply: 0, value: -.5 }, { ply: 1, value: .7 }]);
+});
+
+test('a black single-step request backfills the initial position before searching the live position', async () => {
+  const LIVE = START.replace(' w ', ' b ');
+  const app = await controller({ initFen: START, fen: LIVE, playerSide: 'black', turn: 'black', moveCount: 1, boardKey: 'game:first-black-turn' });
+  await app.click('single');
+  const requests = () => app.calls.filter(call => call.type === 'XQ_ANALYZE');
+  assert.equal(requests().length, 1);
+  assert.equal(requests()[0].fen, START);
+  await app.resolveSearch(0, { score: { type: 'cp', value: 50 } });
+  assert.equal(app.plays.length, 0);
+  assert.equal(requests().length, 2);
+  assert.equal(requests()[1].fen, LIVE);
+  await app.resolveSearch(1, { score: { type: 'cp', value: 150 } });
+  assert.equal(app.plays.length, 1);
+  assert.deepEqual(evaluationHistory(app).map(({ ply, value }) => ({ ply, value })), [{ ply: 0, value: -.5 }, { ply: 1, value: .7 }]);
+});
+
+test('red opening play supplies its own zero-ply point without an extra opening search', async () => {
+  const app = await controller({ initFen: START });
+  await app.click('auto');
+  assert.equal(app.searches.length, 1);
+  assert.equal(app.calls.find(call => call.type === 'XQ_ANALYZE').movetime, 3500);
+  await app.resolveSearch(0, { score: { type: 'cp', value: 50 } });
+  assert.equal(app.plays.length, 1);
+  assert.deepEqual(evaluationHistory(app).map(({ ply, value }) => ({ ply, value })), [{ ply: 0, value: .5 }]);
+});
+
+test('pausing an opening capture discards its late result without playing or adding a point', async () => {
+  const app = await controller({ initFen: START, playerSide: 'black', turn: 'red' });
+  await app.click('auto');
+  assert.equal(app.searches.length, 1);
+  await app.click('auto');
+  await app.click('pause-confirm');
+  await app.resolveSearch(0, { score: { type: 'cp', value: 50 } });
+  assert.equal(app.plays.length, 0);
+  assert.deepEqual(evaluationHistory(app), []);
+  assert.equal(app.elements.get('auto').classList.contains('running'), false);
+});
+
+test('an opening capture from a previous game is discarded even before a polling tick', async () => {
+  const app = await controller({ initFen: START, playerSide: 'black', turn: 'red' });
+  await app.click('auto');
+  assert.equal(app.searches.length, 1);
+  app.setState({ gameKey: 'game:new-opening', boardKey: 'game:new-opening:zero', moveCount: 0 });
+  await app.resolveSearch(0, { score: { type: 'cp', value: 50 } });
+  assert.equal(app.plays.length, 0);
+  assert.deepEqual(evaluationHistory(app), []);
+});
+
+test('an unavailable opening score leaves autoplay running and retries after a bounded delay', async () => {
+  const app = await controller({ initFen: START, playerSide: 'black', turn: 'red' });
+  await app.click('auto');
+  await app.resolveSearch(0, { score: null });
+  assert.deepEqual(evaluationHistory(app), []);
+  assert.equal(app.elements.get('auto').classList.contains('running'), true);
+  assert.equal(app.plays.length, 0);
+  await app.advance(1900);
+  assert.equal(app.searches.length, 1, 'a failed optional capture must not retry on every poll');
+  await app.advance(220);
+  assert.equal(app.searches.length, 2);
+  await app.resolveSearch(1, { score: { type: 'cp', value: 50 } });
+  assert.deepEqual(evaluationHistory(app).map(({ ply, value }) => ({ ply, value })), [{ ply: 0, value: -.5 }]);
+  assert.equal(app.plays.length, 0);
+  assert.equal(app.elements.get('auto').classList.contains('running'), true);
+});
+
+test('a hung opening capture times out without pausing autoplay or accepting its late score', async () => {
+  const app = await controller({ initFen: START, playerSide: 'black', turn: 'red' });
+  await app.click('auto');
+  assert.equal(app.searches.length, 1);
+  await app.advance(5000);
+  assert.equal(app.elements.get('auto').classList.contains('running'), true);
+  assert.equal(app.calls.filter(call => call.type === 'XQ_CANCEL').length, 1);
+  assert.deepEqual(evaluationHistory(app), []);
+  await app.resolveSearch(0, { score: { type: 'cp', value: 50 } });
+  assert.deepEqual(evaluationHistory(app), []);
+  assert.equal(app.plays.length, 0);
+  await app.advance(1900);
+  assert.equal(app.searches.length, 1);
+  await app.advance(220);
+  assert.equal(app.searches.length, 2);
+  await app.resolveSearch(1, { score: { type: 'cp', value: 50 } });
+  assert.deepEqual(evaluationHistory(app).map(({ ply, value }) => ({ ply, value })), [{ ply: 0, value: -.5 }]);
+});
+
+test('failure of optional opening capture does not block the requested live move', async () => {
+  const app = await controller({ initFen: START, playerSide: 'black', turn: 'black', moveCount: 1, boardKey: 'game:first-black-turn' });
+  await app.click('single');
+  app.searches[0].reject(new Error('opening computation unavailable'));
+  await flush();
+  assert.equal(app.searches.length, 2);
+  assert.deepEqual(evaluationHistory(app), []);
+  await app.resolveSearch(1, { score: { type: 'cp', value: 150 } });
+  assert.equal(app.plays.length, 1);
+  assert.deepEqual(evaluationHistory(app).map(({ ply, value }) => ({ ply, value })), [{ ply: 1, value: .7 }]);
+});
+
+test('an opening capture is discarded after route, initial position or player identity changes', async () => {
+  for (const change of [
+    { pathname: '/game/another-match' },
+    { state: { initFen: START.replace(' w ', ' b ') } },
+    { state: { playerSide: 'red' } },
+    { state: { participant: false } },
+    { state: { historyMode: true } },
+  ]) {
+    const app = await controller({ initFen: START, playerSide: 'black', turn: 'red' });
+    await app.click('auto');
+    if (change.pathname) app.location.pathname = change.pathname;
+    if (change.state) app.setState(change.state);
+    await app.resolveSearch(0, { score: { type: 'cp', value: 50 } });
+    assert.equal(app.plays.length, 0);
+    assert.deepEqual(evaluationHistory(app), []);
+  }
+});
+
+test('opening capture derives its score direction from the initial FEN side to move', async () => {
+  const initialBlack = START.replace(' w ', ' b ');
+  const app = await controller({ initFen: initialBlack, fen: START, playerSide: 'red', turn: 'black', moveCount: 1, boardKey: 'puzzle:after-first-red' });
+  await app.click('auto');
+  assert.equal(app.searches.length, 1);
+  assert.equal(app.calls.find(call => call.type === 'XQ_ANALYZE').fen, initialBlack);
+  await app.resolveSearch(0, { score: { type: 'mate', value: 3 } });
+  assert.deepEqual(evaluationHistory(app).map(({ ply, value }) => ({ ply, value })), [{ ply: 0, value: -1 }]);
+  assert.match(app.elements.get('evaluation-tooltip').textContent, /对方杀棋 3/);
+  assert.equal(app.plays.length, 0);
+});
+
+test('invalid initial-position strings cannot fabricate an opening analysis request', async () => {
+  for (const initFen of [undefined, null, '', 'not a fen', START.replace(' w ', ' x ')]) {
+    const app = await controller({ initFen, playerSide: 'black', turn: 'red' });
+    await app.click('auto');
+    await app.advance(330);
+    assert.equal(app.searches.length, 0);
+    assert.deepEqual(evaluationHistory(app), []);
+  }
+});
+
+test('the controlled black perspective stays fixed when the side to move changes', async () => {
+  const app = await controller({ mode: 'analysis', canAnalyze: true, active: false, participant: true, playerSide: 'black', turn: 'red' }, { pathname: '/analysis/board' });
+  await app.click('single');
+  await app.resolveSearch(0, { score: { type: 'cp', value: -50 } });
+  assert.equal(app.elements.get('score').textContent, '评估 -0.500000');
+  app.setState({ moveCount: 1, turn: 'black', boardKey: 'analysis:black-turn' });
+  await app.advance(110);
+  await app.click('single');
+  await app.resolveSearch(1, { score: { type: 'cp', value: 50 } });
+  assert.deepEqual(evaluationHistory(app).map(({ ply, value }) => ({ ply, value })), [{ ply: 0, value: .5 }, { ply: 1, value: .5 }]);
+  assert.equal(app.elements.get('score').textContent, '评估 +0.500000');
+  assert.equal(app.elements.get('evaluation-chart').dataset.perspective, 'black');
+  assert.match(app.elements.get('evaluation-tooltip').textContent, /我的视角.*\+0\.500000/);
+});
+
+test('analysis, spectating and unknown player identity use an explicit stable red fallback', async () => {
+  for (const identity of [
+    { participant: false, playerSide: 'black' },
+    { participant: true, playerSide: null },
+    { participant: true, playerSide: 'unknown' },
+    { participant: undefined, playerSide: 'black' },
+  ]) {
+    const app = await controller({ mode: 'analysis', canAnalyze: true, active: false, turn: 'red', ...identity }, { pathname: '/watch/example' });
+    await app.click('single');
+    await app.resolveSearch(0, { score: { type: 'cp', value: 50 } });
+    app.setState({ moveCount: 1, turn: 'black', boardKey: 'watch:black-turn' });
+    await app.advance(110);
+    await app.click('single');
+    await app.resolveSearch(1, { score: { type: 'cp', value: 50 } });
+    assert.deepEqual(evaluationHistory(app).map(({ ply, value }) => ({ ply, value })), [{ ply: 0, value: .5 }, { ply: 1, value: -.5 }]);
+    assert.equal(app.elements.get('evaluation-chart').dataset.perspective, 'red');
+    assert.equal(app.elements.get('evaluation-chart').dataset.controlled, 'false');
+    assert.match(app.elements.get('evaluation-viewpoint').textContent, /分析视角/);
+    assert.doesNotMatch(app.elements.get('evaluation-viewpoint').textContent, /我的视角|执黑|红方视角/);
+  }
+});
+
+test('recognizing the controlled black player reorients all existing samples consistently', async () => {
+  const app = await controller({ mode: 'analysis', canAnalyze: true, active: false, participant: false, playerSide: 'black', turn: 'red' }, { pathname: '/analysis/board' });
+  await app.click('single');
+  await app.resolveSearch(0, { score: { type: 'cp', value: 50 } });
+  app.setState({ moveCount: 1, turn: 'red', boardKey: 'analysis:red-mate' });
+  await app.advance(110);
+  await app.click('single');
+  await app.resolveSearch(1, { score: { type: 'mate', value: 3 } });
+  assert.deepEqual(evaluationHistory(app).map(point => point.value), [.5, 1]);
+  app.setState({ participant: true, moveCount: 2, turn: 'black', boardKey: 'analysis:player-recognized' });
+  await app.advance(110);
+  assert.deepEqual(evaluationHistory(app).map(point => point.value), [-.5, -1]);
+  assert.match(app.elements.get('evaluation-tooltip').textContent, /对方杀棋 3/);
+  await app.click('single');
+  await app.resolveSearch(2, { score: { type: 'cp', value: 150 } });
+  assert.deepEqual(evaluationHistory(app).map(({ ply, value }) => ({ ply, value })), [{ ply: 0, value: -.5 }, { ply: 1, value: -1 }, { ply: 2, value: .7 }]);
+  app.setState({ participant: false, moveCount: 3, boardKey: 'analysis:watch-again' });
+  await app.advance(110);
+  assert.deepEqual(evaluationHistory(app).map(point => point.value), [.5, 1, -.7]);
+  assert.equal(app.elements.get('evaluation-chart').dataset.controlled, 'false');
+});
+
+test('a new game with the opposite controlled side clears history and adopts the new perspective', async () => {
+  const app = await controller({ moveCount: 4, boardKey: 'game:red-four' });
+  await app.click('single');
+  await app.resolveSearch(0, { score: { type: 'cp', value: 50 } });
+  app.setState({ gameKey: 'game:new-black', playerSide: 'black', turn: 'black', moveCount: 1, boardKey: 'game:new-black-one' });
+  await app.advance(110);
+  assert.deepEqual(evaluationHistory(app), []);
+  assert.equal(app.elements.get('evaluation-chart').dataset.perspective, 'black');
+  await app.click('single');
+  await app.resolveSearch(1, { score: { type: 'cp', value: 300 } });
+  assert.deepEqual(evaluationHistory(app).map(({ ply, value }) => ({ ply, value })), [{ ply: 1, value: .9 }]);
 });
 
 test('the game curve appends actual sampled plies and replaces a second evaluation at the same ply', async () => {
@@ -1225,7 +1483,7 @@ test('a black player first seeing a same-identity new opening at ply one gets a 
   assert.deepEqual(evaluationHistory(app), [], 'red may have moved before black sees the new game');
   await app.click('single');
   await app.resolveSearch(1, { score: { type: 'cp', value: 50 } });
-  assert.deepEqual(evaluationHistory(app).map(({ ply, value }) => ({ ply, value })), [{ ply: 1, value: -.5 }]);
+  assert.deepEqual(evaluationHistory(app).map(({ ply, value }) => ({ ply, value })), [{ ply: 1, value: .5 }]);
 });
 
 test('opening history replay does not clear or append to the live game curve', async () => {
@@ -1301,8 +1559,8 @@ test('invalid, rejected, shallow and cancelled evaluations never enter the game 
   assert.deepEqual(evaluationHistory(cancelled), []);
 });
 
-test('mate samples keep an explicit mate label and use signed endpoints in the game curve', async () => {
-  for (const [side, mate, expected] of [['red', 3, 1], ['red', -3, -1], ['black', 3, -1], ['black', -3, 1]]) {
+test('mate samples use the controlled player endpoints and keep explicit mate labels', async () => {
+  for (const [side, mate, expected] of [['red', 3, 1], ['red', -3, -1], ['black', 3, 1], ['black', -3, -1]]) {
     const app = await controller({ turn: side, playerSide: side });
     await app.click('single');
     await app.resolveSearch(0, { score: { type: 'mate', value: mate } });
@@ -1310,6 +1568,7 @@ test('mate samples keep an explicit mate label and use signed endpoints in the g
     assert.equal(points.length, 1);
     assert.equal(points[0].value, expected);
     assert.match(app.elements.get('evaluation-points').innerHTML, /杀棋/);
+    assert.match(app.elements.get('evaluation-tooltip').textContent, mate > 0 ? /我方杀棋 3/ : /对方杀棋 3/);
     assert.equal(app.elements.get('score').textContent, `杀棋 ${mate}`);
   }
 });

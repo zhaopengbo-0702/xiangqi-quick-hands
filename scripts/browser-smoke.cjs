@@ -172,7 +172,8 @@ async function configureWorker(worker,forceWasm){
       if(!['XQ_WARMUP','XQ_ANALYZE','XQ_CANCEL'].includes(message?.type)||!sender.tab)return false;
       void chrome.tabs.get(sender.tab.id).then(tab=>globalThis.smokeObservedMessages.push({
         type:message.type,senderUrl:sender.url,senderTabUrl:sender.tab.url,currentTabUrl:tab.url,
-        ...(message.type==='XQ_ANALYZE'?{fen:message.fen,historyPlies:message.moves?.length??null}:{}),
+        ...(message.type==='XQ_ANALYZE'?{fen:message.fen,historyPlies:message.moves?.length??null,
+          openingOnly:message.mode==='fixed'&&message.movetime===650&&Array.isArray(message.moves)&&message.moves.length===0}:{}),
       }));
       return false;
     });
@@ -464,10 +465,23 @@ async function main() {
       const root=document.getElementById('xq-quick-hands').shadowRoot;
       return Object.fromEntries(['engine-name','status','move','depth','score','elapsed','importance','allocated','pv'].map(id=>[id,root.getElementById(id).textContent]));
     });
+    const curve = await page.evaluate(() => {
+      const root=document.getElementById('xq-quick-hands').shadowRoot;
+      const chart=root.getElementById('evaluation-chart');
+      return {perspective:chart.dataset.perspective,controlled:chart.dataset.controlled,
+        viewpoint:root.getElementById('evaluation-viewpoint').textContent,
+        tooltip:root.getElementById('evaluation-tooltip').textContent,
+        points:[...root.querySelectorAll('#evaluation-points circle')].map(point=>({
+          ply:Number(point.dataset.ply),value:Number(point.dataset.value),mate:point.dataset.mate==='true',
+          label:point.getAttribute('aria-label')}))};
+    });
     const boardState = JSON.parse(await page.locator('#fixture-state').textContent());
     const autoplay=syncScenario||ackScenario||backgroundScenario?await page.evaluate(()=>({...window.smokeAutoplay,
       button:document.getElementById('xq-quick-hands').shadowRoot.getElementById('auto').textContent})):null;
     const messages = await worker.evaluate(() => globalThis.smokeObservedMessages);
+    const analysisMessages=messages.filter(message=>message.type==='XQ_ANALYZE');
+    const openingAnalyses=analysisMessages.filter(message=>message.openingOnly);
+    const liveAnalyses=analysisMessages.filter(message=>!message.openingOnly);
     const analysis = messages.find(message=>message.type==='XQ_ANALYZE');
     assert.ok(analysis,'The real service worker must receive an analysis request');
     assert.equal(analysis.currentTabUrl,'https://play.xiangqi.com/computer-play');
@@ -477,12 +491,31 @@ async function main() {
     assert.match(panel['engine-name'], /Pikafish.*NNUE/, 'The production extension must identify the verified Pikafish NNUE backend');
     assert.ok(Number(panel.depth.match(/\d+/)?.[0])>=6,'Real Pikafish search must finish at least six plies');
     assert.ok(panel.pv.includes(panel.move),'The displayed move must have a searched principal variation');
+    assert.equal(curve.perspective,playerSide,'The production curve follows the controlled side');
+    assert.equal(curve.controlled,'true');
+    assert.match(curve.viewpoint,/我的视角/);
+    assert.ok(!/红方视角|执红|执黑/.test(curve.viewpoint),'The curve caption does not repeat a side label');
+    assert.ok(curve.points.some(point=>point.ply===0),'The genuine initial position evaluation is retained');
+    if(playerSide==='black'||reloadScenario){
+      assert.equal(openingAnalyses.length,1,'Exactly one initial-position analysis supplements this panel');
+      assert.equal(openingAnalyses[0].historyPlies,0);
+    }
+    if(!syncScenario&&!ackScenario&&!backgroundScenario&&!reloadScenario){
+      assert.equal(boardState.ownInputAttempts,1,'The initial-position analysis must not add destination input');
+      assert.equal(boardState.ownMoves.length,1);
+      assert.deepEqual(analysisMessages.map(message=>message.historyPlies),playerSide==='black'?[0,1]:[0]);
+      assert.deepEqual(curve.points.map(point=>point.ply),playerSide==='black'?[0,1]:[0]);
+      const latest=curve.points.at(-1);
+      const score=Number(panel.score.match(/[+-]?\d+(?:\.\d+)?/)?.[0]);
+      assert.equal(latest.value,panel.score.startsWith('杀棋')?Math.sign(score):score,
+        'The own-turn numeric evaluation and curve point share sign and magnitude');
+    }
     if(backgroundScenario){
       assert.equal(boardState.ownMoves.length,3);
       assert.equal(boardState.ownInputAttempts,3);
       assert.equal(boardState.rejectedOwnInputs,0);
       assert.ok(background.continuous.searches.every(search=>search.depth>=6&&search.elapsedMs<5000));
-      const analyzedPlies=messages.filter(message=>message.type==='XQ_ANALYZE').map(message=>message.historyPlies);
+      const analyzedPlies=liveAnalyses.map(message=>message.historyPlies);
       assert.deepEqual(analyzedPlies.slice(0,2),[initialPlies,initialPlies+2]);
       assert.ok(analyzedPlies.length>=4&&analyzedPlies.slice(2).every(plies=>plies===initialPlies+4),'Only the currently blocked position may be retried before recovery');
     }else if(syncScenario||ackScenario){
@@ -492,7 +525,7 @@ async function main() {
       assert.equal(boardState.ownInputAttempts,2,'Each own move must have one destination click');
       assert.equal(boardState.rejectedOwnInputs,0,'No duplicate input may occur during the opponent turn');
       assert.equal(new Set(boardState.ownMoves.map(move=>move.beforeFen)).size,2);
-      assert.deepEqual(messages.filter(message=>message.type==='XQ_ANALYZE').map(message=>message.historyPlies),[initialPlies,initialPlies+2]);
+      assert.deepEqual(liveAnalyses.map(message=>message.historyPlies),[initialPlies,initialPlies+2]);
       assert.equal(autoplay.searches.length,2);
       assert.ok(autoplay.searches.every(search=>search.depth>=6&&search.elapsedMs<5000));
       if(syncScenario){
@@ -514,7 +547,7 @@ async function main() {
       assert.equal(boardState.ownInputAttempts,2);
       assert.equal(boardState.rejectedOwnInputs,0);
       assert.equal(boardState.ownMoves.length,2);
-      assert.deepEqual(messages.filter(message=>message.type==='XQ_ANALYZE').map(message=>message.historyPlies),[initialPlies+2]);
+      assert.deepEqual(liveAnalyses.map(message=>message.historyPlies),[initialPlies+2]);
       assert.deepEqual(documentNavigations,[]);
       reload.documentNavigations=documentNavigations;
     }
@@ -530,7 +563,7 @@ async function main() {
             reloadScenario?'real runtime reload + preserved live chess document + fresh paused panel + acknowledged move':'fixture move acknowledgement'):
         'real MV3 extension + native messaging + official Pikafish NNUE + SPA lobby-to-game + fixture move acknowledgement',
       engine:startup.result,
-      elapsedMs:elapsed,panel,boardState,...(autoplay?{autoplay}:{}),...(reload?{reload}:{}),...(background?{background}:{}),messages,offscreenContexts:contextsBefore,pageErrors:errors};
+      elapsedMs:elapsed,panel,curve,boardState,...(autoplay?{autoplay}:{}),...(reload?{reload}:{}),...(background?{background}:{}),messages,offscreenContexts:contextsBefore,pageErrors:errors};
     await fs.writeFile(path.join(results,artifactPrefix+'.json'),JSON.stringify(report,null,2)+'\n');
     console.log(JSON.stringify(report,null,2));
   } catch(error) {
